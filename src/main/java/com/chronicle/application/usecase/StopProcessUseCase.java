@@ -1,6 +1,6 @@
 package com.chronicle.application.usecase;
 
-import com.chronicle.application.dto.ProcessCommandRequest;
+import com.chronicle.application.request.ProcessCommandRequest;
 import com.chronicle.application.exception.ProcessNotFoundException;
 import com.chronicle.domain.command.StopProcess;
 import com.chronicle.domain.model.ActivityLogEntry;
@@ -15,6 +15,8 @@ import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.TerminalInfoRepository;
 import com.chronicle.domain.transition.TransitionContext;
 import com.chronicle.domain.transition.TransitionEngine;
+
+import java.util.Map;
 
 public final class StopProcessUseCase {
 
@@ -86,7 +88,12 @@ public final class StopProcessUseCase {
                 "APPLICATION",
                 newProcess.state().isTerminal()
                         ? "Process stopped immediately."
-                        : "Stop requested and waiting for checkpoint."
+                        : "Stop requested and waiting for checkpoint.",
+                Map.of(
+                        "status", newProcess.state().code(),
+                        "stop_requested", !newProcess.state().isTerminal()
+                ),
+                request.processId()
         ));
 
         return newProcess;

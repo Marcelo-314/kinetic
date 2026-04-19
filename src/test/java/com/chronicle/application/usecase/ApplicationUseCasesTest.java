@@ -1,7 +1,7 @@
 package com.chronicle.application.usecase;
 
-import com.chronicle.application.dto.CreateProcessRequest;
-import com.chronicle.application.dto.ProcessCommandRequest;
+import com.chronicle.application.request.CreateProcessRequest;
+import com.chronicle.application.request.ProcessCommandRequest;
 import com.chronicle.application.exception.ProcessNotFoundException;
 import com.chronicle.domain.model.ActivityLogEntry;
 import com.chronicle.domain.model.AuthorizationInfo;

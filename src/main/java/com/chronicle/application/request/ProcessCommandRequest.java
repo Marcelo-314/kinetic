@@ -1,4 +1,4 @@
-package com.chronicle.application.dto;
+package com.chronicle.application.request;
 
 public record ProcessCommandRequest(String processId) {
 }
