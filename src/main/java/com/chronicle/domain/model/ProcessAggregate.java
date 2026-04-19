@@ -17,13 +17,13 @@ public record ProcessAggregate(
         if (state == null) {
             throw new IllegalArgumentException("state must not be null");
         }
-        if (version < 0) {
-            throw new IllegalArgumentException("version must be greater than or equal to zero");
+        if (version < 1) {
+            throw new IllegalArgumentException("version must be greater than or equal to one");
         }
     }
 
     public static ProcessAggregate pending(String processId) {
-        return new ProcessAggregate(processId, ProcessState.pending(), 0L, false, false);
+        return new ProcessAggregate(processId, ProcessState.pending(), 1L, false, false);
     }
 
     public ProcessAggregate withState(ProcessState newState) {
