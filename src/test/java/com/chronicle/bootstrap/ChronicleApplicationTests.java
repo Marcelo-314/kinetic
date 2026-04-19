@@ -9,5 +9,4 @@ class ChronicleApplicationTests {
     @Test
     void contextLoads() {
     }
-
 }
