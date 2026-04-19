@@ -1,6 +1,6 @@
 package com.chronicle.application.usecase;
 
-import com.chronicle.application.dto.ProcessCommandRequest;
+import com.chronicle.application.request.ProcessCommandRequest;
 import com.chronicle.application.exception.ProcessNotFoundException;
 import com.chronicle.domain.command.PauseProcess;
 import com.chronicle.domain.model.ActivityLogEntry;
@@ -13,6 +13,8 @@ import com.chronicle.domain.port.IdGeneratorPort;
 import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.transition.TransitionContext;
 import com.chronicle.domain.transition.TransitionEngine;
+
+import java.util.Map;
 
 public final class PauseProcessUseCase {
 
@@ -58,7 +60,9 @@ public final class PauseProcessUseCase {
                 clockPort.now(),
                 "PAUSE_REQUESTED",
                 "APPLICATION",
-                "Pause requested for running process."
+                "Pause requested for running process.",
+                Map.of("pause_requested", true),
+                request.processId()
         ));
         return newProcess;
     }

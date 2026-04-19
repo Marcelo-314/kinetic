@@ -1,4 +1,4 @@
-package com.chronicle.application.dto;
+package com.chronicle.application.request;
 
 import com.chronicle.domain.model.FailurePolicy;
 import com.chronicle.domain.model.SelectionMode;

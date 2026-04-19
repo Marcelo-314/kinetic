@@ -1,6 +1,6 @@
 package com.chronicle.application.usecase;
 
-import com.chronicle.application.dto.ProcessCommandRequest;
+import com.chronicle.application.request.ProcessCommandRequest;
 import com.chronicle.application.exception.ProcessNotFoundException;
 import com.chronicle.domain.command.AuthorizeProcess;
 import com.chronicle.domain.model.ActivityLogEntry;
@@ -16,6 +16,8 @@ import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.ProgressSnapshotRepository;
 import com.chronicle.domain.transition.TransitionContext;
 import com.chronicle.domain.transition.TransitionEngine;
+
+import java.util.Map;
 
 public final class AuthorizeProcessUseCase {
 
@@ -89,7 +91,9 @@ public final class AuthorizeProcessUseCase {
                 clockPort.now(),
                 "PROCESS_AUTHORIZED",
                 "APPLICATION",
-                "Process authorized and moved to RUNNING."
+                "Process authorized and moved to RUNNING.",
+                Map.of("status", newProcess.state().code()),
+                request.processId()
         ));
 
         return newProcess;

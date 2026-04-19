@@ -1,6 +1,6 @@
 package com.chronicle.application.usecase;
 
-import com.chronicle.application.dto.CreateProcessRequest;
+import com.chronicle.application.request.CreateProcessRequest;
 import com.chronicle.domain.model.ActivityLogEntry;
 import com.chronicle.domain.model.AuthorizationInfo;
 import com.chronicle.domain.model.AuthorizationState;
@@ -21,6 +21,7 @@ import com.chronicle.domain.port.ProgressSnapshotRepository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public final class CreateProcessUseCase {
 
@@ -120,7 +121,9 @@ public final class CreateProcessUseCase {
                 now,
                 "PROCESS_CREATED",
                 "APPLICATION",
-                "Process created in PENDING state."
+                "Process created in PENDING state.",
+                Map.of("status", process.state().code()),
+                processId
         );
 
         processRepository.save(process);
