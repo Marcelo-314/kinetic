@@ -2,6 +2,8 @@
 
 Chronicle es un servicio de procesamiento documental asincrono con lifecycle explicito, runtime con lease y API REST para control operativo, status, results y activity.
 
+La base H2 in-memory se inicializa automaticamente al arrancar mediante `schema.sql`. No hace falta ejecutar scripts manuales ni preparar la base por fuera de la aplicacion.
+
 ## Ejecutar localmente
 
 Requisitos:
@@ -20,6 +22,8 @@ Accesos locales:
 - API publica: `http://localhost:8080/api/v1`
 - Actuator: `http://localhost:8080/actuator`
 - H2 console: `http://localhost:8080/h2-console`
+
+La consola H2 sirve solo para inspeccion manual. No es necesaria para que Chronicle cree el esquema o funcione.
 
 Configuracion H2 por defecto:
 
