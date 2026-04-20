@@ -56,6 +56,8 @@ mvn test
 - `GET /actuator/info`
 - `GET /actuator/metrics`
 
+En observabilidad, los scans vacios del dispatcher no se emiten en `INFO` para evitar ruido cuando el sistema esta idle. Los eventos operativamente relevantes del runtime siguen visibles en `INFO`.
+
 ## Runtime actual
 
 - dispatcher con scan periodico de procesos `RUNNING`
