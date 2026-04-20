@@ -17,17 +17,24 @@ import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.FileSourcePort;
 import com.chronicle.domain.port.IdGeneratorPort;
+import com.chronicle.domain.port.ProcessLeasePort;
 import com.chronicle.domain.port.ProcessPlanRepository;
 import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.ProgressSnapshotRepository;
 import com.chronicle.domain.port.TerminalInfoRepository;
 import com.chronicle.domain.transition.TransitionContext;
 import com.chronicle.domain.transition.TransitionEngine;
+import com.chronicle.application.service.ProcessResultProjectionService;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class ProcessWorker {
@@ -42,8 +49,10 @@ public class ProcessWorker {
     private final FileSourcePort fileSourcePort;
     private final ClockPort clockPort;
     private final IdGeneratorPort idGeneratorPort;
+    private final ProcessLeasePort processLeasePort;
     private final TransitionEngine transitionEngine;
     private final DocumentAnalyzer documentAnalyzer;
+    private final ProcessResultProjectionService processResultProjectionService;
     private final TransactionTemplate transactionTemplate;
 
     public ProcessWorker(
@@ -57,8 +66,10 @@ public class ProcessWorker {
             FileSourcePort fileSourcePort,
             ClockPort clockPort,
             IdGeneratorPort idGeneratorPort,
+            ProcessLeasePort processLeasePort,
             TransitionEngine transitionEngine,
             DocumentAnalyzer documentAnalyzer,
+            ProcessResultProjectionService processResultProjectionService,
             TransactionTemplate transactionTemplate
     ) {
         this.processRepository = processRepository;
@@ -71,12 +82,18 @@ public class ProcessWorker {
         this.fileSourcePort = fileSourcePort;
         this.clockPort = clockPort;
         this.idGeneratorPort = idGeneratorPort;
+        this.processLeasePort = processLeasePort;
         this.transitionEngine = transitionEngine;
         this.documentAnalyzer = documentAnalyzer;
+        this.processResultProjectionService = processResultProjectionService;
         this.transactionTemplate = transactionTemplate;
     }
 
     public void processNextDocument(String processId) {
+        processNextDocument(processId, null, null);
+    }
+
+    public void processNextDocument(String processId, String ownerId, Duration leaseDuration) {
         PreparedProcessStep preparedStep = transactionTemplate.execute(status -> prepareStep(processId));
         if (preparedStep == null || !preparedStep.hasDocumentWork()) {
             return;
@@ -84,12 +101,14 @@ public class ProcessWorker {
 
         DocumentAnalysis analysis = null;
         RuntimeException processingFailure = null;
-        try {
-            analysis = documentAnalyzer.analyze(
-                    fileSourcePort.readTextFile(preparedStep.plan().sourceFolder(), preparedStep.documentExecution().documentName())
-            );
-        } catch (RuntimeException exception) {
-            processingFailure = exception;
+        try (LeaseRenewalSession ignored = startLeaseRenewal(processId, ownerId, leaseDuration)) {
+            try {
+                analysis = documentAnalyzer.analyze(
+                        fileSourcePort.readTextFile(preparedStep.plan().sourceFolder(), preparedStep.documentExecution().documentName())
+                );
+            } catch (RuntimeException exception) {
+                processingFailure = exception;
+            }
         }
 
         DocumentAnalysis finalAnalysis = analysis;
@@ -181,6 +200,7 @@ public class ProcessWorker {
 
         resolvedProcess = applyResultKind(resolvedProcess, updatedProgress, workCompleted);
         processRepository.save(resolvedProcess);
+        processResultProjectionService.snapshotCurrent(resolvedProcess);
 
         activityLogRepository.save(buildDocumentActivity(closedDocument, resolvedProcess, now));
 
@@ -239,6 +259,7 @@ public class ProcessWorker {
                 .touch(now);
         resolvedProcess = applyResultKind(resolvedProcess, progress, workCompleted);
         processRepository.save(resolvedProcess);
+        processResultProjectionService.snapshotCurrent(resolvedProcess);
 
         if ("PAUSED".equals(resolvedProcess.state().code()) || resolvedProcess.state().isTerminal()) {
             executionControlFlagsRepository.save(new ExecutionControlFlags(
@@ -286,10 +307,57 @@ public class ProcessWorker {
         if (progress.processedFiles() > 0 || progress.failedFiles() > 0) {
             return process.withResultKind(ResultKind.PARTIAL, now);
         }
+        // STOPPED and FAILED legitimately remain NONE when there is no closed documentary evidence yet.
         if (workCompleted || process.state().isTerminal()) {
             return process.withResultKind(ResultKind.NONE, now);
         }
         return process;
+    }
+
+    private LeaseRenewalSession startLeaseRenewal(String processId, String ownerId, Duration leaseDuration) {
+        if (ownerId == null || leaseDuration == null || leaseDuration.isZero() || leaseDuration.isNegative()) {
+            return LeaseRenewalSession.noop();
+        }
+
+        Duration renewalPeriod = leaseDuration.dividedBy(2);
+        if (renewalPeriod.isZero()) {
+            renewalPeriod = Duration.ofMillis(250);
+        }
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual()
+                .name("chronicle-lease-renewal-", 0)
+                .factory());
+        AtomicBoolean active = new AtomicBoolean(true);
+        Runnable renewalTask = () -> {
+            if (!active.get()) {
+                return;
+            }
+            processLeasePort.renew(processId, ownerId, clockPort.now().plus(leaseDuration));
+        };
+        scheduler.scheduleAtFixedRate(
+                renewalTask,
+                renewalPeriod.toMillis(),
+                renewalPeriod.toMillis(),
+                TimeUnit.MILLISECONDS
+        );
+        return new LeaseRenewalSession(active, scheduler);
+    }
+
+    private record LeaseRenewalSession(AtomicBoolean active, ScheduledExecutorService scheduler) implements AutoCloseable {
+
+        static LeaseRenewalSession noop() {
+            return new LeaseRenewalSession(null, null);
+        }
+
+        @Override
+        public void close() {
+            if (active != null) {
+                active.set(false);
+            }
+            if (scheduler != null) {
+                scheduler.shutdownNow();
+            }
+        }
     }
 
     private DocumentExecution toProcessing(DocumentExecution documentExecution, Instant now) {

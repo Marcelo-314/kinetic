@@ -60,7 +60,7 @@ public class ProcessDispatcher {
 
             workerExecutor.submit(() -> {
                 try {
-                    processWorker.processNextDocument(process.processId());
+                    processWorker.processNextDocument(process.processId(), ownerId, leaseDuration);
                 } finally {
                     processLeasePort.release(process.processId(), ownerId);
                     processSlots.release();

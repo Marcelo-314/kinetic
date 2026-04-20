@@ -1,8 +1,11 @@
 package com.chronicle.adapters.in.web;
 
 import com.chronicle.adapters.in.web.dto.ProcessListResponseDto;
+import com.chronicle.adapters.in.web.dto.ProcessResultsResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessStatusResponseDto;
+import com.chronicle.application.query.GetProcessResultsQuery;
 import com.chronicle.application.query.ListProcessesQuery;
+import com.chronicle.application.usecase.GetProcessResultsUseCase;
 import com.chronicle.application.usecase.GetProcessStatusUseCase;
 import com.chronicle.application.usecase.ListProcessesUseCase;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -19,15 +22,18 @@ import java.time.Instant;
 public class ProcessQueryController {
 
     private final GetProcessStatusUseCase getProcessStatusUseCase;
+    private final GetProcessResultsUseCase getProcessResultsUseCase;
     private final ListProcessesUseCase listProcessesUseCase;
     private final ProcessWebMapper mapper;
 
     public ProcessQueryController(
             GetProcessStatusUseCase getProcessStatusUseCase,
+            GetProcessResultsUseCase getProcessResultsUseCase,
             ListProcessesUseCase listProcessesUseCase,
             ProcessWebMapper mapper
     ) {
         this.getProcessStatusUseCase = getProcessStatusUseCase;
+        this.getProcessResultsUseCase = getProcessResultsUseCase;
         this.listProcessesUseCase = listProcessesUseCase;
         this.mapper = mapper;
     }
@@ -35,6 +41,21 @@ public class ProcessQueryController {
     @GetMapping("/{process_id}/status")
     public ProcessStatusResponseDto getProcessStatus(@PathVariable("process_id") String processId) {
         return mapper.toStatusResponse(getProcessStatusUseCase.execute(processId));
+    }
+
+    @GetMapping("/{process_id}/results")
+    public ProcessResultsResponseDto getProcessResults(
+            @PathVariable("process_id") String processId,
+            @RequestParam(name = "include_documents", defaultValue = "true") boolean includeDocuments,
+            @RequestParam(name = "include_global_summary", defaultValue = "true") boolean includeGlobalSummary,
+            @RequestParam(name = "top_words_limit", defaultValue = "10") int topWordsLimit
+    ) {
+        return mapper.toResultsResponse(getProcessResultsUseCase.execute(new GetProcessResultsQuery(
+                processId,
+                includeDocuments,
+                includeGlobalSummary,
+                topWordsLimit
+        )));
     }
 
     @GetMapping

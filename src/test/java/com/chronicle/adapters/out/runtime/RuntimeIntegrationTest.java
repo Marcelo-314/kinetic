@@ -24,6 +24,7 @@ import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.ProcessLeasePort;
 import com.chronicle.domain.port.ProcessPlanRepository;
+import com.chronicle.domain.port.ProcessResultRepository;
 import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.ProgressSnapshotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Files;
@@ -44,6 +46,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(
         classes = ChronicleApplication.class,
@@ -51,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
                 "spring.jpa.hibernate.ddl-auto=create-drop",
                 "chronicle.runtime.scheduler.enabled=false",
                 "chronicle.runtime.max-concurrent-processes=2",
-                "chronicle.runtime.lease-duration-seconds=5"
+                "chronicle.runtime.lease-duration-seconds=1"
         }
 )
 class RuntimeIntegrationTest {
@@ -98,11 +103,18 @@ class RuntimeIntegrationTest {
     @Autowired
     private ClockPort clockPort;
 
+    @Autowired
+    private ProcessResultRepository processResultRepository;
+
+    @MockBean
+    private DocumentAnalyzer documentAnalyzer;
+
     private Path sourceFolder;
 
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.execute("DELETE FROM activity_log");
+        jdbcTemplate.execute("DELETE FROM process_result");
         jdbcTemplate.execute("DELETE FROM process_lease");
         jdbcTemplate.execute("DELETE FROM terminal_info");
         jdbcTemplate.execute("DELETE FROM document_execution");
@@ -115,6 +127,14 @@ class RuntimeIntegrationTest {
         sourceFolder = Files.createTempDirectory("chronicle-runtime");
         Files.writeString(sourceFolder.resolve("doc-01.txt"), "Chronicle runtime\nhandles documents cleanly.");
         Files.writeString(sourceFolder.resolve("doc-02.txt"), "Another document for deterministic processing.");
+
+        when(documentAnalyzer.analyze(anyString())).thenAnswer(invocation -> new DocumentAnalysis(
+                5,
+                2,
+                invocation.getArgument(0, String.class).length(),
+                List.of(),
+                "Deterministic summary"
+        ));
     }
 
     @Test
@@ -133,6 +153,7 @@ class RuntimeIntegrationTest {
         assertEquals("COMPLETED", process.state().code());
         assertEquals(ResultKind.FINAL, process.resultKind());
         assertEquals(DocumentStatus.PROCESSED, documents.getFirst().documentStatus());
+        assertEquals(ResultKind.FINAL, processResultRepository.findCurrentByProcessId(processId).orElseThrow().resultKind());
         assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "DOCUMENT_PROCESSED".equals(log.eventType())));
         assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "PROCESS_COMPLETED".equals(log.eventType())));
     }
@@ -150,6 +171,22 @@ class RuntimeIntegrationTest {
     }
 
     @Test
+    void leaseIsRenewedDuringLongDocumentProcessing() throws Exception {
+        String processId = createAndAuthorize(List.of("doc-01.txt"));
+        doAnswer(invocation -> {
+            Thread.sleep(1_500L);
+            String content = invocation.getArgument(0, String.class);
+            return new DocumentAnalysis(4, 1, content.length(), List.of(), "Long running summary");
+        }).when(documentAnalyzer).analyze(anyString());
+
+        processDispatcher.dispatchOnce();
+        Thread.sleep(1_200L);
+
+        assertFalse(processLeasePort.tryAcquire(processId, "intruder", clockPort.now().plusSeconds(1)));
+        waitFor(() -> progressSnapshotRepository.findByProcessId(processId).orElseThrow().processedFiles() == 1);
+    }
+
+    @Test
     void workerProcessesOneDocumentAndUpdatesProgress() {
         String processId = createAndAuthorize(List.of("doc-01.txt", "doc-02.txt"));
 
@@ -162,6 +199,7 @@ class RuntimeIntegrationTest {
         assertEquals(1, progress.pendingFiles());
         assertEquals("RUNNING", process.state().code());
         assertEquals(ResultKind.PARTIAL, process.resultKind());
+        assertEquals(ResultKind.PARTIAL, processResultRepository.findCurrentByProcessId(processId).orElseThrow().resultKind());
     }
 
     @Test
