@@ -24,6 +24,8 @@ public class ProcessDispatcher {
     private final ExecutorService workerExecutor;
     private final Duration leaseDuration;
     private final int scanLimit;
+    private final RuntimeTelemetry runtimeTelemetry;
+    private final RuntimeRecoveryService runtimeRecoveryService;
 
     public ProcessDispatcher(
             ProcessRepository processRepository,
@@ -31,6 +33,8 @@ public class ProcessDispatcher {
             ProcessWorker processWorker,
             ClockPort clockPort,
             IdGeneratorPort idGeneratorPort,
+            RuntimeTelemetry runtimeTelemetry,
+            RuntimeRecoveryService runtimeRecoveryService,
             @Value("${chronicle.runtime.max-concurrent-processes:4}") int maxConcurrentProcesses,
             @Value("${chronicle.runtime.lease-duration-seconds:30}") long leaseDurationSeconds,
             @Value("${chronicle.runtime.scan-limit:20}") int scanLimit
@@ -40,6 +44,8 @@ public class ProcessDispatcher {
         this.processWorker = processWorker;
         this.clockPort = clockPort;
         this.idGeneratorPort = idGeneratorPort;
+        this.runtimeTelemetry = runtimeTelemetry;
+        this.runtimeRecoveryService = runtimeRecoveryService;
         this.processSlots = new Semaphore(maxConcurrentProcesses);
         this.workerExecutor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
         this.leaseDuration = Duration.ofSeconds(leaseDurationSeconds);
@@ -47,8 +53,15 @@ public class ProcessDispatcher {
     }
 
     public void dispatchOnce() {
-        for (var process : processRepository.findRunnableProcesses(scanLimit)) {
+        var dispatchTimer = runtimeTelemetry.startDispatchSample();
+        runtimeTelemetry.recordDispatchScanStart(scanLimit);
+        runtimeRecoveryService.reconcileOrphanProcessingDocuments();
+        var runnableProcesses = processRepository.findRunnableProcesses(scanLimit);
+        int dispatched = 0;
+        for (var process : runnableProcesses) {
             if (!processSlots.tryAcquire()) {
+                runtimeTelemetry.recordDispatchScanEnd(runnableProcesses.size(), dispatched);
+                runtimeTelemetry.recordDispatchDuration(dispatchTimer);
                 return;
             }
 
@@ -57,6 +70,9 @@ public class ProcessDispatcher {
                 processSlots.release();
                 continue;
             }
+            runtimeTelemetry.recordLeaseAcquired(process.processId(), ownerId);
+            runtimeTelemetry.recordProcessDispatched(process.processId(), ownerId);
+            dispatched += 1;
 
             workerExecutor.submit(() -> {
                 try {
@@ -67,6 +83,8 @@ public class ProcessDispatcher {
                 }
             });
         }
+        runtimeTelemetry.recordDispatchScanEnd(runnableProcesses.size(), dispatched);
+        runtimeTelemetry.recordDispatchDuration(dispatchTimer);
     }
 
     @PreDestroy

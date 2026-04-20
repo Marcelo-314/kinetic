@@ -23,6 +23,15 @@ spring:
 server:
   shutdown: graceful
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
 chronicle:
   runtime:
     scheduler:

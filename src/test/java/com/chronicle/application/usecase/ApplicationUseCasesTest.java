@@ -461,5 +461,13 @@ class ApplicationUseCasesTest {
         public long countPendingByProcessId(String processId) {
             return store.getOrDefault(processId, List.of()).size();
         }
+
+        @Override
+        public List<DocumentExecution> findAllProcessing() {
+            return store.values().stream()
+                    .flatMap(List::stream)
+                    .filter(document -> document.documentStatus() == com.chronicle.domain.model.DocumentStatus.PROCESSING)
+                    .toList();
+        }
     }
 }

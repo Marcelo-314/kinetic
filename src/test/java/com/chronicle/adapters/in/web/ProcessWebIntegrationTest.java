@@ -263,6 +263,13 @@ class ProcessWebIntegrationTest {
     }
 
     @Test
+    void actuatorHealthIsExposed() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").exists());
+    }
+
+    @Test
     void errorsFollowContract() throws Exception {
         mockMvc.perform(get("/api/v1/processes/{process_id}/status", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
