@@ -48,14 +48,19 @@ public class RuntimeTelemetry {
     }
 
     public void recordDispatchScanStart(int scanLimit) {
-        log("dispatcher_scan_start", null, null, null, null, null, null, Map.of("scan_limit", scanLimit));
+        logDebug("dispatcher_scan_start", null, null, null, null, null, null, Map.of("scan_limit", scanLimit));
     }
 
     public void recordDispatchScanEnd(int scanned, int dispatched) {
-        log("dispatcher_scan_end", null, null, null, null, null, null, Map.of(
+        Map<String, Object> details = Map.of(
                 "scanned_processes", scanned,
                 "dispatched_processes", dispatched
-        ));
+        );
+        if (isIdleDispatchScan(scanned, dispatched)) {
+            logDebug("dispatcher_scan_end", null, null, null, null, null, null, details);
+            return;
+        }
+        log("dispatcher_scan_end", null, null, null, null, null, null, details);
     }
 
     public void recordDispatchDuration(Timer.Sample sample) {
@@ -219,6 +224,33 @@ public class RuntimeTelemetry {
             Map<String, Object> extra
     ) {
         LOGGER.info(
+                "event_type={} process_id={} document_execution_id={} correlation_id={} lease_owner_id={} process_status={} document_status={} details={}",
+                activityEventType == null ? eventType : activityEventType,
+                processId,
+                documentExecutionId,
+                processId,
+                leaseOwnerId,
+                processStatus,
+                documentStatus,
+                extra
+        );
+    }
+
+    boolean isIdleDispatchScan(int scanned, int dispatched) {
+        return scanned == 0 && dispatched == 0;
+    }
+
+    private void logDebug(
+            String eventType,
+            String processId,
+            String documentExecutionId,
+            String activityEventType,
+            String leaseOwnerId,
+            String processStatus,
+            String documentStatus,
+            Map<String, Object> extra
+    ) {
+        LOGGER.debug(
                 "event_type={} process_id={} document_execution_id={} correlation_id={} lease_owner_id={} process_status={} document_status={} details={}",
                 activityEventType == null ? eventType : activityEventType,
                 processId,
