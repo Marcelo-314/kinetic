@@ -1,10 +1,13 @@
 package com.chronicle.adapters.in.web;
 
+import com.chronicle.adapters.in.web.dto.ActivityListResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessListResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessResultsResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessStatusResponseDto;
+import com.chronicle.application.query.GetProcessActivityQuery;
 import com.chronicle.application.query.GetProcessResultsQuery;
 import com.chronicle.application.query.ListProcessesQuery;
+import com.chronicle.application.usecase.GetProcessActivityUseCase;
 import com.chronicle.application.usecase.GetProcessResultsUseCase;
 import com.chronicle.application.usecase.GetProcessStatusUseCase;
 import com.chronicle.application.usecase.ListProcessesUseCase;
@@ -23,17 +26,20 @@ public class ProcessQueryController {
 
     private final GetProcessStatusUseCase getProcessStatusUseCase;
     private final GetProcessResultsUseCase getProcessResultsUseCase;
+    private final GetProcessActivityUseCase getProcessActivityUseCase;
     private final ListProcessesUseCase listProcessesUseCase;
     private final ProcessWebMapper mapper;
 
     public ProcessQueryController(
             GetProcessStatusUseCase getProcessStatusUseCase,
             GetProcessResultsUseCase getProcessResultsUseCase,
+            GetProcessActivityUseCase getProcessActivityUseCase,
             ListProcessesUseCase listProcessesUseCase,
             ProcessWebMapper mapper
     ) {
         this.getProcessStatusUseCase = getProcessStatusUseCase;
         this.getProcessResultsUseCase = getProcessResultsUseCase;
+        this.getProcessActivityUseCase = getProcessActivityUseCase;
         this.listProcessesUseCase = listProcessesUseCase;
         this.mapper = mapper;
     }
@@ -55,6 +61,25 @@ public class ProcessQueryController {
                 includeDocuments,
                 includeGlobalSummary,
                 topWordsLimit
+        )));
+    }
+
+    @GetMapping("/{process_id}/activity")
+    public ActivityListResponseDto getProcessActivity(
+            @PathVariable("process_id") String processId,
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(name = "event_type", required = false) String eventType,
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "page_size", defaultValue = "50") int pageSize
+    ) {
+        return mapper.toActivityResponse(getProcessActivityUseCase.execute(new GetProcessActivityQuery(
+                processId,
+                from,
+                to,
+                eventType,
+                page,
+                pageSize
         )));
     }
 

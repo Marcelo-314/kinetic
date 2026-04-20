@@ -1,6 +1,8 @@
 package com.chronicle.adapters.in.web;
 
 import com.chronicle.adapters.in.web.dto.AuthorizationViewDto;
+import com.chronicle.adapters.in.web.dto.ActivityItemDto;
+import com.chronicle.adapters.in.web.dto.ActivityListResponseDto;
 import com.chronicle.adapters.in.web.dto.CommandAcceptedResponseDto;
 import com.chronicle.adapters.in.web.dto.CoverageViewDto;
 import com.chronicle.adapters.in.web.dto.CreateProcessRequestDto;
@@ -19,6 +21,7 @@ import com.chronicle.adapters.in.web.dto.TotalsViewDto;
 import com.chronicle.adapters.in.web.dto.WordFrequencyDto;
 import com.chronicle.application.query.ProcessListItemView;
 import com.chronicle.application.query.ProcessListView;
+import com.chronicle.application.query.ProcessActivityView;
 import com.chronicle.application.query.ProcessResultsView;
 import com.chronicle.application.query.ProcessStatusView;
 import com.chronicle.application.request.CreateProcessRequest;
@@ -144,6 +147,24 @@ public class ProcessWebMapper {
                         view.terminalInfo().terminalReasonCode(),
                         view.terminalInfo().terminalReasonMessage()
                 )
+        );
+    }
+
+    public ActivityListResponseDto toActivityResponse(ProcessActivityView view) {
+        return new ActivityListResponseDto(
+                view.items().stream()
+                        .map(item -> new ActivityItemDto(
+                                item.activityId(),
+                                item.timestamp(),
+                                item.eventType(),
+                                item.eventStage(),
+                                item.message(),
+                                item.metadata()
+                        ))
+                        .toList(),
+                view.page(),
+                view.pageSize(),
+                view.totalItems()
         );
     }
 

@@ -2,6 +2,7 @@ package com.chronicle.bootstrap;
 
 import com.chronicle.application.usecase.AuthorizeProcessUseCase;
 import com.chronicle.application.usecase.CreateProcessUseCase;
+import com.chronicle.application.usecase.GetProcessActivityUseCase;
 import com.chronicle.application.usecase.GetProcessResultsUseCase;
 import com.chronicle.application.usecase.GetProcessStatusUseCase;
 import com.chronicle.application.usecase.ListProcessesUseCase;
@@ -212,5 +213,13 @@ public class ApplicationConfiguration {
                 terminalInfoRepository,
                 processResultProjectionService
         );
+    }
+
+    @Bean
+    GetProcessActivityUseCase getProcessActivityUseCase(
+            ProcessRepository processRepository,
+            ActivityLogRepository activityLogRepository
+    ) {
+        return new GetProcessActivityUseCase(processRepository, activityLogRepository);
     }
 }
