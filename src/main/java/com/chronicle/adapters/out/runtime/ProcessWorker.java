@@ -101,7 +101,8 @@ public class ProcessWorker {
 
         DocumentAnalysis analysis = null;
         RuntimeException processingFailure = null;
-        try (LeaseRenewalSession ignored = startLeaseRenewal(processId, ownerId, leaseDuration)) {
+        LeaseRenewalSession renewalSession = startLeaseRenewal(processId, ownerId, leaseDuration);
+        try (LeaseRenewalSession ignored = renewalSession) {
             try {
                 analysis = documentAnalyzer.analyze(
                         fileSourcePort.readTextFile(preparedStep.plan().sourceFolder(), preparedStep.documentExecution().documentName())
@@ -114,7 +115,7 @@ public class ProcessWorker {
         DocumentAnalysis finalAnalysis = analysis;
         RuntimeException finalProcessingFailure = processingFailure;
         transactionTemplate.executeWithoutResult(status ->
-                closeStep(preparedStep, finalAnalysis, finalProcessingFailure)
+                closeStep(preparedStep, finalAnalysis, finalProcessingFailure, renewalSession.leaseLost().get())
         );
     }
 
@@ -171,8 +172,14 @@ public class ProcessWorker {
     private void closeStep(
             PreparedProcessStep preparedStep,
             DocumentAnalysis analysis,
-            RuntimeException processingFailure
+            RuntimeException processingFailure,
+            boolean leaseLost
     ) {
+        if (leaseLost) {
+            abortAfterLeaseLoss(preparedStep);
+            return;
+        }
+
         Instant now = clockPort.now();
         boolean failed = processingFailure != null;
 
@@ -314,6 +321,42 @@ public class ProcessWorker {
         return process;
     }
 
+    private void abortAfterLeaseLoss(PreparedProcessStep preparedStep) {
+        Instant now = clockPort.now();
+        documentExecutionRepository.save(new DocumentExecution(
+                preparedStep.documentExecution().documentExecutionId(),
+                preparedStep.documentExecution().processId(),
+                preparedStep.documentExecution().documentName(),
+                preparedStep.documentExecution().documentPath(),
+                DocumentStatus.PENDING,
+                preparedStep.documentExecution().batchIndex(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                preparedStep.documentExecution().mostFrequentWords(),
+                null,
+                null,
+                null,
+                null
+        ));
+
+        activityLogRepository.save(new ActivityLogEntry(
+                idGeneratorPort.generate(),
+                preparedStep.process().processId(),
+                now,
+                "LEASE_RENEWAL_FAILED",
+                "RUNTIME",
+                "Worker aborted current document after losing the process lease.",
+                Map.of(
+                        "document_name", preparedStep.documentExecution().documentName(),
+                        "document_status", "PENDING"
+                ),
+                preparedStep.process().processId()
+        ));
+    }
+
     private LeaseRenewalSession startLeaseRenewal(String processId, String ownerId, Duration leaseDuration) {
         if (ownerId == null || leaseDuration == null || leaseDuration.isZero() || leaseDuration.isNegative()) {
             return LeaseRenewalSession.noop();
@@ -328,11 +371,15 @@ public class ProcessWorker {
                 .name("chronicle-lease-renewal-", 0)
                 .factory());
         AtomicBoolean active = new AtomicBoolean(true);
+        AtomicBoolean leaseLost = new AtomicBoolean(false);
         Runnable renewalTask = () -> {
             if (!active.get()) {
                 return;
             }
-            processLeasePort.renew(processId, ownerId, clockPort.now().plus(leaseDuration));
+            if (!processLeasePort.renew(processId, ownerId, clockPort.now().plus(leaseDuration))) {
+                leaseLost.set(true);
+                active.set(false);
+            }
         };
         scheduler.scheduleAtFixedRate(
                 renewalTask,
@@ -340,13 +387,17 @@ public class ProcessWorker {
                 renewalPeriod.toMillis(),
                 TimeUnit.MILLISECONDS
         );
-        return new LeaseRenewalSession(active, scheduler);
+        return new LeaseRenewalSession(active, leaseLost, scheduler);
     }
 
-    private record LeaseRenewalSession(AtomicBoolean active, ScheduledExecutorService scheduler) implements AutoCloseable {
+    private record LeaseRenewalSession(
+            AtomicBoolean active,
+            AtomicBoolean leaseLost,
+            ScheduledExecutorService scheduler
+    ) implements AutoCloseable {
 
         static LeaseRenewalSession noop() {
-            return new LeaseRenewalSession(null, null);
+            return new LeaseRenewalSession(null, new AtomicBoolean(false), null);
         }
 
         @Override
@@ -358,6 +409,7 @@ public class ProcessWorker {
                 scheduler.shutdownNow();
             }
         }
+
     }
 
     private DocumentExecution toProcessing(DocumentExecution documentExecution, Instant now) {

@@ -412,6 +412,22 @@ class ApplicationUseCasesTest {
         public List<ActivityLogEntry> findByProcessId(String processId) {
             return store.getOrDefault(processId, List.of());
         }
+
+        @Override
+        public List<ActivityLogEntry> findByProcessId(String processId, Instant from, Instant to, String eventType, int page, int pageSize) {
+            return store.getOrDefault(processId, List.of()).stream()
+                    .filter(entry -> from == null || !entry.timestamp().isBefore(from))
+                    .filter(entry -> to == null || !entry.timestamp().isAfter(to))
+                    .filter(entry -> eventType == null || eventType.isBlank() || eventType.equals(entry.eventType()))
+                    .skip((long) (page - 1) * pageSize)
+                    .limit(pageSize)
+                    .toList();
+        }
+
+        @Override
+        public long countByProcessId(String processId, Instant from, Instant to, String eventType) {
+            return findByProcessId(processId, from, to, eventType, 1, Integer.MAX_VALUE).size();
+        }
     }
 
     private static final class InMemoryDocumentExecutionRepository implements DocumentExecutionRepository {

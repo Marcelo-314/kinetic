@@ -228,6 +228,69 @@ class PersistenceAdaptersIntegrationTest {
         assertTrue(activityLogRepository.findByProcessId(created.processId()).size() >= 2);
     }
 
+    @Test
+    void activityRepositorySupportsFilteringPagingAndDescendingOrder() {
+        String processId = "process-activity";
+        processRepository.save(ProcessAggregate.pending(processId));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-1",
+                processId,
+                Instant.parse("2026-04-19T18:01:00Z"),
+                "PROCESS_CREATED",
+                "APPLICATION",
+                "Created",
+                Map.of(),
+                processId
+        ));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-2",
+                processId,
+                Instant.parse("2026-04-19T18:02:00Z"),
+                "PROCESS_AUTHORIZED",
+                "APPLICATION",
+                "Authorized",
+                Map.of(),
+                processId
+        ));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-3",
+                processId,
+                Instant.parse("2026-04-19T18:03:00Z"),
+                "PROCESS_PAUSED",
+                "RUNTIME",
+                "Paused",
+                Map.of(),
+                processId
+        ));
+
+        var page = activityLogRepository.findByProcessId(
+                processId,
+                Instant.parse("2026-04-19T18:01:30Z"),
+                Instant.parse("2026-04-19T18:03:30Z"),
+                null,
+                1,
+                2
+        );
+
+        assertEquals(2, page.size());
+        assertEquals("PROCESS_PAUSED", page.get(0).eventType());
+        assertEquals("PROCESS_AUTHORIZED", page.get(1).eventType());
+        assertEquals(2L, activityLogRepository.countByProcessId(
+                processId,
+                Instant.parse("2026-04-19T18:01:30Z"),
+                Instant.parse("2026-04-19T18:03:30Z"),
+                null
+        ));
+        assertEquals(1, activityLogRepository.findByProcessId(
+                processId,
+                null,
+                null,
+                "PROCESS_AUTHORIZED",
+                1,
+                10
+        ).size());
+    }
+
     @TestConfiguration
     static class TestConfig {
 

@@ -3,6 +3,7 @@ package com.chronicle.adapters.in.web;
 import com.chronicle.bootstrap.ChronicleApplication;
 import com.chronicle.domain.model.AuthorizationInfo;
 import com.chronicle.domain.model.AuthorizationState;
+import com.chronicle.domain.model.ActivityLogEntry;
 import com.chronicle.domain.model.DocumentExecution;
 import com.chronicle.domain.model.DocumentStatus;
 import com.chronicle.domain.model.ExecutionControlFlags;
@@ -14,6 +15,7 @@ import com.chronicle.domain.model.SelectionMode;
 import com.chronicle.domain.model.SummaryPolicy;
 import com.chronicle.domain.model.FailurePolicy;
 import com.chronicle.domain.port.AuthorizationInfoRepository;
+import com.chronicle.domain.port.ActivityLogRepository;
 import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.ProcessPlanRepository;
@@ -84,6 +86,9 @@ class ProcessWebIntegrationTest {
 
     @Autowired
     private TerminalInfoRepository terminalInfoRepository;
+
+    @Autowired
+    private ActivityLogRepository activityLogRepository;
 
     private Path sourceFolder;
 
@@ -222,6 +227,37 @@ class ProcessWebIntegrationTest {
                 .andExpect(jsonPath("$.most_frequent_words", hasSize(1)));
 
         mockMvc.perform(get("/api/v1/processes/{process_id}/results", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PROCESS_NOT_FOUND"));
+    }
+
+    @Test
+    void activityEndpointReturnsPagedFilteredActivity() throws Exception {
+        String processId = seedActivityProcess();
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/activity", processId)
+                        .queryParam("page", "1")
+                        .queryParam("page_size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.page_size").value(2))
+                .andExpect(jsonPath("$.total_items").value(3))
+                .andExpect(jsonPath("$.items[0].event_type").value("PROCESS_PAUSED"));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/activity", processId)
+                        .queryParam("event_type", "PROCESS_AUTHORIZED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].event_type").value("PROCESS_AUTHORIZED"));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/activity", processId)
+                        .queryParam("from", "2026-04-19T18:01:30Z")
+                        .queryParam("to", "2026-04-19T18:03:30Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/activity", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PROCESS_NOT_FOUND"));
     }
@@ -511,6 +547,91 @@ class ProcessWebIntegrationTest {
 
     private String processIdFor(String suffix) {
         return "00000000-0000-0000-0001-" + String.format("%012d", Math.abs(suffix.hashCode()));
+    }
+
+    private String seedActivityProcess() {
+        String processId = processIdFor("activity");
+        Instant now = Instant.parse("2026-04-19T18:00:00Z");
+        processRepository.save(new ProcessAggregate(
+                processId,
+                ProcessState.running(),
+                2L,
+                now,
+                now,
+                "Activity process",
+                ResultKind.PARTIAL,
+                false,
+                false
+        ));
+        processPlanRepository.save(new ProcessPlan(
+                "plan-activity",
+                processId,
+                sourceFolder.toString(),
+                SelectionMode.EXPLICIT_SELECTION,
+                List.of("doc-01.txt"),
+                1,
+                1,
+                SummaryPolicy.EXTRACTIVE_DETERMINISTIC,
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                now
+        ));
+        authorizationInfoRepository.save(new AuthorizationInfo(
+                "auth-activity",
+                processId,
+                true,
+                AuthorizationState.AUTHORIZED,
+                null,
+                now,
+                null,
+                now
+        ));
+        progressSnapshotRepository.save(new ProgressSnapshot(
+                "progress-activity",
+                processId,
+                1,
+                1,
+                1,
+                0,
+                0,
+                100.0,
+                1,
+                1,
+                now,
+                null,
+                now
+        ));
+        executionControlFlagsRepository.save(new ExecutionControlFlags(processId, false, false, now, null));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-1",
+                processId,
+                Instant.parse("2026-04-19T18:01:00Z"),
+                "PROCESS_CREATED",
+                "APPLICATION",
+                "Process created and awaiting authorization.",
+                java.util.Map.of("status", "PENDING"),
+                processId
+        ));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-2",
+                processId,
+                Instant.parse("2026-04-19T18:02:00Z"),
+                "PROCESS_AUTHORIZED",
+                "APPLICATION",
+                "Process authorized and dispatched.",
+                java.util.Map.of("status", "RUNNING"),
+                processId
+        ));
+        activityLogRepository.save(new ActivityLogEntry(
+                "activity-3",
+                processId,
+                Instant.parse("2026-04-19T18:03:00Z"),
+                "PROCESS_PAUSED",
+                "RUNTIME",
+                "Process paused at safe document checkpoint.",
+                java.util.Map.of("status", "PAUSED"),
+                processId
+        ));
+        return processId;
     }
 
     private String escapePath(Path path) {

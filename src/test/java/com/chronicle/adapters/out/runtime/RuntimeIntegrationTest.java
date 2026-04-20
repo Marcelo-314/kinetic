@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Files;
@@ -45,9 +46,13 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(
@@ -78,6 +83,9 @@ class RuntimeIntegrationTest {
 
     @Autowired
     private ProcessLeasePort processLeasePort;
+
+    @SpyBean
+    private ProcessLeasePort spyProcessLeasePort;
 
     @Autowired
     private ProcessRepository processRepository;
@@ -200,6 +208,63 @@ class RuntimeIntegrationTest {
         assertEquals("RUNNING", process.state().code());
         assertEquals(ResultKind.PARTIAL, process.resultKind());
         assertEquals(ResultKind.PARTIAL, processResultRepository.findCurrentByProcessId(processId).orElseThrow().resultKind());
+    }
+
+    @Test
+    void workerAbortsSafelyWhenLeaseRenewalFails() throws Exception {
+        String processId = createAndAuthorize(List.of("doc-01.txt"));
+        assertTrue(processLeasePort.tryAcquire(processId, "owner-a", clockPort.now().plusMillis(400)));
+
+        doAnswer(invocation -> {
+            Thread.sleep(700L);
+            String content = invocation.getArgument(0, String.class);
+            return new DocumentAnalysis(4, 1, content.length(), List.of(), "Lease loss summary");
+        }).when(documentAnalyzer).analyze(anyString());
+        doReturn(false).when(spyProcessLeasePort).renew(eq(processId), eq("owner-a"), any(Instant.class));
+
+        processWorker.processNextDocument(processId, "owner-a", java.time.Duration.ofMillis(200));
+
+        ProgressSnapshot progress = progressSnapshotRepository.findByProcessId(processId).orElseThrow();
+        DocumentExecution document = documentExecutionRepository.findByProcessId(processId).getFirst();
+        ProcessAggregate process = processRepository.findById(processId).orElseThrow();
+
+        assertEquals(0, progress.processedFiles());
+        assertEquals(1, progress.pendingFiles());
+        assertEquals(DocumentStatus.PENDING, document.documentStatus());
+        assertEquals("RUNNING", process.state().code());
+        assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "LEASE_RENEWAL_FAILED".equals(log.eventType())));
+    }
+
+    @Test
+    void workerRejectsMultipleProcessingDocumentsForSameProcess() {
+        String processId = seedRunningProcess(
+                "processing-conflict",
+                List.of("doc-01.txt"),
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                false,
+                false,
+                sourceFolder.toString()
+        );
+        documentExecutionRepository.save(new DocumentExecution(
+                "processing-conflict-extra",
+                processId,
+                "doc-02.txt",
+                sourceFolder.resolve("doc-02.txt").toString(),
+                DocumentStatus.PROCESSING,
+                1,
+                Instant.parse("2026-04-19T18:00:01Z"),
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+        ));
+
+        assertThrows(IllegalStateException.class, () -> processWorker.processNextDocument(processId));
     }
 
     @Test
