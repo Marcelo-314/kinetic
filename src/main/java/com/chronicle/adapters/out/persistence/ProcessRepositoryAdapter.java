@@ -39,15 +39,38 @@ public class ProcessRepositoryAdapter implements ProcessRepository {
     }
 
     @Override
+    public List<ProcessAggregate> findRunnableProcesses(int limit) {
+        return repository.findTop20ByStatusOrderByUpdatedAtAsc("RUNNING").stream()
+                .limit(limit)
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public ProcessAggregate save(ProcessAggregate aggregate) {
-        if (!repository.existsById(aggregate.processId())) {
+        var currentEntity = repository.findById(aggregate.processId()).orElse(null);
+        if (currentEntity == null) {
             var newEntity = mapper.toNewEntity(aggregate);
             entityManager.persist(newEntity);
             entityManager.flush();
             return mapper.toDomain(newEntity);
         }
 
-        return mapper.toDomain(repository.saveAndFlush(mapper.toExistingEntity(aggregate)));
+        var currentDomain = mapper.toDomain(currentEntity);
+        var entityToSave = isSameVersionMetadataUpdate(aggregate, currentDomain)
+                ? mapper.toEntityUsingCurrentPersistedVersion(aggregate, currentEntity.getVersion())
+                : mapper.toExistingEntity(aggregate);
+
+        return mapper.toDomain(repository.saveAndFlush(entityToSave));
+    }
+
+    private boolean isSameVersionMetadataUpdate(ProcessAggregate candidate, ProcessAggregate current) {
+        return candidate.version() == current.version()
+                && candidate.state().code().equals(current.state().code())
+                && candidate.pauseRequested() == current.pauseRequested()
+                && candidate.stopRequested() == current.stopRequested()
+                && candidate.createdAt().equals(current.createdAt())
+                && candidate.objective().equals(current.objective());
     }
 }

@@ -40,7 +40,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(classes = ChronicleApplication.class, properties = "spring.jpa.hibernate.ddl-auto=create-drop")
+@SpringBootTest(
+        classes = ChronicleApplication.class,
+        properties = {
+                "spring.jpa.hibernate.ddl-auto=create-drop",
+                "chronicle.runtime.scheduler.enabled=false"
+        }
+)
 @AutoConfigureMockMvc
 class ProcessWebIntegrationTest {
 
@@ -73,7 +79,9 @@ class ProcessWebIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.execute("DELETE FROM activity_log");
+        jdbcTemplate.execute("DELETE FROM process_lease");
         jdbcTemplate.execute("DELETE FROM terminal_info");
+        jdbcTemplate.execute("DELETE FROM document_execution");
         jdbcTemplate.execute("DELETE FROM execution_control_flags");
         jdbcTemplate.execute("DELETE FROM progress_snapshot");
         jdbcTemplate.execute("DELETE FROM authorization_info");
@@ -104,6 +112,7 @@ class ProcessWebIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.process_id").isNotEmpty())
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.message").value("Process created and awaiting authorization."))
                 .andExpect(jsonPath("$.authorization.authorization_required").value(true))
                 .andExpect(jsonPath("$.links.status").exists());
     }
@@ -154,7 +163,7 @@ class ProcessWebIntegrationTest {
         String processId = createProcess();
         mockMvc.perform(post("/api/v1/processes/{process_id}/pause", processId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INVALID_TRANSITION"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
 
         mockMvc.perform(post("/api/v1/processes")
                         .contentType(APPLICATION_JSON)
@@ -185,10 +194,10 @@ class ProcessWebIntegrationTest {
                                   "summary_policy": "EXTRACTIVE_DETERMINISTIC",
                                   "failure_policy": "TOLERATE_PARTIAL_FAILURES",
                                   "authorization_required": true
-                                }
+                }
                                 """))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("SEMANTIC_VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.error.code").value("SOURCE_FOLDER_NOT_FOUND"));
     }
 
     private String createProcess() throws Exception {

@@ -7,4 +7,6 @@ public interface FileSourcePort {
     boolean folderExists(String sourceFolder);
 
     List<String> listTextFiles(String sourceFolder);
+
+    String readTextFile(String sourceFolder, String documentName);
 }

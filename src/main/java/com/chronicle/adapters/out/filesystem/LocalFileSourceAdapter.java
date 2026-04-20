@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
 
@@ -28,6 +29,15 @@ public class LocalFileSourceAdapter implements FileSourcePort {
                     .toList();
         } catch (IOException exception) {
             throw new IllegalArgumentException("Unable to list source folder " + sourceFolder, exception);
+        }
+    }
+
+    @Override
+    public String readTextFile(String sourceFolder, String documentName) {
+        try {
+            return Files.readString(Path.of(sourceFolder, documentName), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to read document " + documentName, exception);
         }
     }
 }

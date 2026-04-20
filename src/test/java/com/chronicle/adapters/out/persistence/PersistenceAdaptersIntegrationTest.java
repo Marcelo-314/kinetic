@@ -2,6 +2,7 @@ package com.chronicle.adapters.out.persistence;
 
 import com.chronicle.adapters.out.persistence.mapper.ActivityLogPersistenceMapper;
 import com.chronicle.adapters.out.persistence.mapper.AuthorizationInfoPersistenceMapper;
+import com.chronicle.adapters.out.persistence.mapper.DocumentExecutionPersistenceMapper;
 import com.chronicle.adapters.out.persistence.mapper.ExecutionControlFlagsPersistenceMapper;
 import com.chronicle.adapters.out.persistence.mapper.ProcessPersistenceMapper;
 import com.chronicle.adapters.out.persistence.mapper.ProcessPlanPersistenceMapper;
@@ -29,6 +30,7 @@ import com.chronicle.domain.port.FileSourcePort;
 import com.chronicle.domain.port.IdGeneratorPort;
 import com.chronicle.domain.transition.DefaultTransitionEngine;
 import com.chronicle.domain.transition.TransitionEngine;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         ExecutionControlFlagsPersistenceMapper.class,
         TerminalInfoPersistenceMapper.class,
         ActivityLogPersistenceMapper.class,
+        DocumentExecutionPersistenceMapper.class,
         ProcessRepositoryAdapter.class,
         ProcessPlanRepositoryAdapter.class,
         AuthorizationInfoRepositoryAdapter.class,
@@ -65,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         ExecutionControlFlagsRepositoryAdapter.class,
         TerminalInfoRepositoryAdapter.class,
         ActivityLogRepositoryAdapter.class,
+        DocumentExecutionRepositoryAdapter.class,
         PersistenceAdaptersIntegrationTest.TestConfig.class
 })
 class PersistenceAdaptersIntegrationTest {
@@ -233,6 +237,11 @@ class PersistenceAdaptersIntegrationTest {
         }
 
         @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper();
+        }
+
+        @Bean
         IdGeneratorPort idGeneratorPort() {
             return new IdGeneratorPort() {
                 private int counter = 0;
@@ -256,6 +265,11 @@ class PersistenceAdaptersIntegrationTest {
                 @Override
                 public List<String> listTextFiles(String sourceFolder) {
                     return List.of("doc-01.txt", "doc-02.txt");
+                }
+
+                @Override
+                public String readTextFile(String sourceFolder, String documentName) {
+                    return "doc-01.txt".equals(documentName) ? "hello world" : "another document";
                 }
             };
         }
@@ -293,8 +307,10 @@ class PersistenceAdaptersIntegrationTest {
         @Bean
         AuthorizeProcessUseCase authorizeProcessUseCase(
                 ProcessRepositoryAdapter processRepository,
+                ProcessPlanRepositoryAdapter processPlanRepository,
                 AuthorizationInfoRepositoryAdapter authorizationInfoRepository,
                 ProgressSnapshotRepositoryAdapter progressSnapshotRepository,
+                DocumentExecutionRepositoryAdapter documentExecutionRepository,
                 ActivityLogRepositoryAdapter activityLogRepository,
                 ClockPort clockPort,
                 IdGeneratorPort idGeneratorPort,
@@ -302,8 +318,10 @@ class PersistenceAdaptersIntegrationTest {
         ) {
             return new AuthorizeProcessUseCase(
                     processRepository,
+                    processPlanRepository,
                     authorizationInfoRepository,
                     progressSnapshotRepository,
+                    documentExecutionRepository,
                     activityLogRepository,
                     clockPort,
                     idGeneratorPort,

@@ -147,6 +147,7 @@ public final class CreateProcessUseCase {
         }
         if (!fileSourcePort.folderExists(request.sourceFolder())) {
             throw new SemanticValidationException(
+                    "SOURCE_FOLDER_NOT_FOUND",
                     "sourceFolder must exist",
                     Map.of("source_folder", request.sourceFolder())
             );
@@ -155,7 +156,10 @@ public final class CreateProcessUseCase {
             throw new IllegalArgumentException("batchSize must be greater than zero");
         }
         if (request.selectionMode() == SelectionMode.EXPLICIT_SELECTION && request.selectedFiles().isEmpty()) {
-            throw new SemanticValidationException("selectedFiles must not be empty for explicit selection");
+            throw new SemanticValidationException(
+                    "INVALID_SELECTION_MODE",
+                    "selectedFiles must not be empty for explicit selection"
+            );
         }
     }
 
