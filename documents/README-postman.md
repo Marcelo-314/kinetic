@@ -1,4 +1,4 @@
-# Postman Test Pack — Document Processing Service
+# Postman Test Pack - Document Processing Service
 
 This package contains:
 
@@ -7,7 +7,7 @@ This package contains:
 
 ## Assumptions
 
-The collection is aligned with the contract discussed for the challenge:
+The collection is aligned with the current service contract:
 
 - `POST /api/v1/processes` creates a process in `PENDING`
 - `POST /api/v1/processes/{id}/authorize` moves `PENDING -> RUNNING`
@@ -15,6 +15,13 @@ The collection is aligned with the contract discussed for the challenge:
 - `POST /api/v1/processes/{id}/resume` is valid only for `PAUSED`
 - `POST /api/v1/processes/{id}/stop` is valid for `PENDING`, `RUNNING`, `PAUSED`
 - `GET /api/v1/processes/{id}/results` distinguishes `NONE`, `PARTIAL`, `FINAL`
+- `GET /api/v1/processes/{id}/activity` is available
+
+## Base URL
+
+The collection expects:
+
+- `http://localhost:8080/api/v1`
 
 ## Recommended execution order
 
@@ -27,8 +34,8 @@ The collection is aligned with the contract discussed for the challenge:
 3. Run folder `01 - Lifecycle Happy Path`
 4. Run folder `02 - Stop Scenarios`
 5. Run folders `03 - Negative State Transitions`, `04 - Validation Errors`, `05 - Results Semantics`
-6. Run `06 - Activity Log` only if the activity endpoint is implemented
-7. Run `07 - List & Filters`
+6. Run folder `06 - Activity Log`
+7. Run folder `07 - List & Filters`
 
 ## Notes
 
@@ -37,8 +44,8 @@ The collection is aligned with the contract discussed for the challenge:
   - `max_retries`
   - `retries`
 - Some negative tests depend on prior scenario setup and may return `404` if the referenced process id was not captured.
-- The `activity` endpoint is optional relative to the original challenge, even though activity logs themselves are required by the specification analysis.
 - The collection is intentionally strict about invalid state transitions and expects `409 Conflict` in those cases.
+- Actuator endpoints are not part of this collection; validate them separately at `/actuator/health`, `/actuator/health/readiness` and `/actuator/metrics`.
 
 ## Newman
 
