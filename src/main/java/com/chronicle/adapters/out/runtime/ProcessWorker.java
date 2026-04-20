@@ -53,6 +53,7 @@ public class ProcessWorker {
     private final TransitionEngine transitionEngine;
     private final DocumentAnalyzer documentAnalyzer;
     private final ProcessResultProjectionService processResultProjectionService;
+    private final RuntimeTelemetry runtimeTelemetry;
     private final TransactionTemplate transactionTemplate;
 
     public ProcessWorker(
@@ -70,6 +71,7 @@ public class ProcessWorker {
             TransitionEngine transitionEngine,
             DocumentAnalyzer documentAnalyzer,
             ProcessResultProjectionService processResultProjectionService,
+            RuntimeTelemetry runtimeTelemetry,
             TransactionTemplate transactionTemplate
     ) {
         this.processRepository = processRepository;
@@ -86,6 +88,7 @@ public class ProcessWorker {
         this.transitionEngine = transitionEngine;
         this.documentAnalyzer = documentAnalyzer;
         this.processResultProjectionService = processResultProjectionService;
+        this.runtimeTelemetry = runtimeTelemetry;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -99,8 +102,10 @@ public class ProcessWorker {
             return;
         }
 
+        runtimeTelemetry.recordWorkerStarted(preparedStep.process().processId(), ownerId, preparedStep.process().state().code());
         DocumentAnalysis analysis = null;
         RuntimeException processingFailure = null;
+        var documentTimer = runtimeTelemetry.startDocumentProcessingSample();
         LeaseRenewalSession renewalSession = startLeaseRenewal(processId, ownerId, leaseDuration);
         try (LeaseRenewalSession ignored = renewalSession) {
             try {
@@ -117,6 +122,9 @@ public class ProcessWorker {
         transactionTemplate.executeWithoutResult(status ->
                 closeStep(preparedStep, finalAnalysis, finalProcessingFailure, renewalSession.leaseLost().get())
         );
+        runtimeTelemetry.recordDocumentProcessingDuration(documentTimer, renewalSession.leaseLost().get()
+                ? "lease_lost"
+                : (finalProcessingFailure == null ? "success" : "failure"));
     }
 
     private PreparedProcessStep prepareStep(String processId) {
@@ -150,6 +158,7 @@ public class ProcessWorker {
         Instant now = clockPort.now();
         DocumentExecution processingDocument = toProcessing(nextPending.orElseThrow(), now);
         documentExecutionRepository.save(processingDocument);
+        runtimeTelemetry.recordDocumentProcessingStarted(process, processingDocument, null);
         progressSnapshotRepository.save(new ProgressSnapshot(
                 progress.progressSnapshotId(),
                 progress.processId(),
@@ -210,6 +219,11 @@ public class ProcessWorker {
         processResultProjectionService.snapshotCurrent(resolvedProcess);
 
         activityLogRepository.save(buildDocumentActivity(closedDocument, resolvedProcess, now));
+        if (closedDocument.documentStatus() == DocumentStatus.PROCESSED) {
+            runtimeTelemetry.recordDocumentProcessed(resolvedProcess, closedDocument);
+        } else {
+            runtimeTelemetry.recordDocumentFailed(resolvedProcess, closedDocument);
+        }
 
         if (resolvedProcess.state().isTerminal()) {
             executionControlFlagsRepository.save(new ExecutionControlFlags(
@@ -229,6 +243,7 @@ public class ProcessWorker {
                     updatedProgress.percentage()
             ));
             activityLogRepository.save(buildTerminalActivity(resolvedProcess, now));
+            recordTerminalTelemetry(resolvedProcess);
         } else if ("PAUSED".equals(resolvedProcess.state().code())) {
             executionControlFlagsRepository.save(new ExecutionControlFlags(
                     currentProcess.processId(),
@@ -247,6 +262,7 @@ public class ProcessWorker {
                     Map.of("status", resolvedProcess.state().code()),
                     resolvedProcess.processId()
             ));
+            runtimeTelemetry.recordProcessPaused(resolvedProcess);
         }
     }
 
@@ -267,6 +283,7 @@ public class ProcessWorker {
         resolvedProcess = applyResultKind(resolvedProcess, progress, workCompleted);
         processRepository.save(resolvedProcess);
         processResultProjectionService.snapshotCurrent(resolvedProcess);
+        runtimeTelemetry.recordCheckpointResolved(resolvedProcess, resolvedProcess.state().code());
 
         if ("PAUSED".equals(resolvedProcess.state().code()) || resolvedProcess.state().isTerminal()) {
             executionControlFlagsRepository.save(new ExecutionControlFlags(
@@ -289,6 +306,7 @@ public class ProcessWorker {
                     Map.of("status", resolvedProcess.state().code()),
                     resolvedProcess.processId()
             ));
+            runtimeTelemetry.recordProcessPaused(resolvedProcess);
             return;
         }
 
@@ -303,6 +321,7 @@ public class ProcessWorker {
                     progress.percentage()
             ));
             activityLogRepository.save(buildTerminalActivity(resolvedProcess, now));
+            recordTerminalTelemetry(resolvedProcess);
         }
     }
 
@@ -355,6 +374,12 @@ public class ProcessWorker {
                 ),
                 preparedStep.process().processId()
         ));
+        runtimeTelemetry.recordWorkerAborted(
+                preparedStep.process().processId(),
+                preparedStep.documentExecution().documentExecutionId(),
+                processLeasePort.findOwnerId(preparedStep.process().processId()).orElse(null),
+                "PENDING"
+        );
     }
 
     private LeaseRenewalSession startLeaseRenewal(String processId, String ownerId, Duration leaseDuration) {
@@ -379,7 +404,10 @@ public class ProcessWorker {
             if (!processLeasePort.renew(processId, ownerId, clockPort.now().plus(leaseDuration))) {
                 leaseLost.set(true);
                 active.set(false);
+                runtimeTelemetry.recordLeaseRenewalFailed(processId, ownerId);
+                return;
             }
+            runtimeTelemetry.recordLeaseRenewed(processId, ownerId);
         };
         scheduler.scheduleAtFixedRate(
                 renewalTask,
@@ -562,5 +590,15 @@ public class ProcessWorker {
             case "FAILED" -> "A runtime failure forced process termination.";
             default -> throw new IllegalArgumentException("Unsupported terminal state " + process.state().code());
         };
+    }
+
+    private void recordTerminalTelemetry(ProcessAggregate resolvedProcess) {
+        switch (resolvedProcess.state().code()) {
+            case "STOPPED" -> runtimeTelemetry.recordProcessStopped(resolvedProcess);
+            case "COMPLETED" -> runtimeTelemetry.recordProcessCompleted(resolvedProcess);
+            case "FAILED" -> runtimeTelemetry.recordProcessFailed(resolvedProcess);
+            default -> {
+            }
+        }
     }
 }

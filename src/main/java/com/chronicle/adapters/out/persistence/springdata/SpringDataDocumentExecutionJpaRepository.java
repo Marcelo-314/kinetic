@@ -18,4 +18,6 @@ public interface SpringDataDocumentExecutionJpaRepository extends JpaRepository<
     Optional<DocumentExecutionJpaEntity> findFirstByProcessIdAndDocumentStatus(String processId, String documentStatus);
 
     long countByProcessIdAndDocumentStatus(String processId, String documentStatus);
+
+    List<DocumentExecutionJpaEntity> findByDocumentStatusOrderByProcessIdAscBatchIndexAscDocumentNameAsc(String documentStatus);
 }

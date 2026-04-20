@@ -52,4 +52,12 @@ public class DocumentExecutionRepositoryAdapter implements DocumentExecutionRepo
     public long countPendingByProcessId(String processId) {
         return repository.countByProcessIdAndDocumentStatus(processId, "PENDING");
     }
+
+    @Override
+    public List<DocumentExecution> findAllProcessing() {
+        return repository.findByDocumentStatusOrderByProcessIdAscBatchIndexAscDocumentNameAsc("PROCESSING")
+                .stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
 }

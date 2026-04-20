@@ -16,4 +16,6 @@ public interface DocumentExecutionRepository {
     Optional<DocumentExecution> findProcessingByProcessId(String processId);
 
     long countPendingByProcessId(String processId);
+
+    List<DocumentExecution> findAllProcessing();
 }

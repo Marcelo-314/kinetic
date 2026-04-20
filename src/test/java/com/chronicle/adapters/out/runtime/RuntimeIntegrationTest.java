@@ -28,6 +28,7 @@ import com.chronicle.domain.port.ProcessResultRepository;
 import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.ProgressSnapshotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,6 +114,12 @@ class RuntimeIntegrationTest {
 
     @Autowired
     private ProcessResultRepository processResultRepository;
+
+    @Autowired
+    private RuntimeRecoveryService runtimeRecoveryService;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @MockBean
     private DocumentAnalyzer documentAnalyzer;
@@ -265,6 +272,62 @@ class RuntimeIntegrationTest {
         ));
 
         assertThrows(IllegalStateException.class, () -> processWorker.processNextDocument(processId));
+    }
+
+    @Test
+    void orphanProcessingDocumentIsReconciledBeforeNewWork() {
+        String processId = seedRunningProcess(
+                "orphan-processing",
+                List.of("doc-01.txt"),
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                false,
+                false,
+                sourceFolder.toString()
+        );
+        DocumentExecution pending = documentExecutionRepository.findByProcessId(processId).getFirst();
+        documentExecutionRepository.save(new DocumentExecution(
+                pending.documentExecutionId(),
+                pending.processId(),
+                pending.documentName(),
+                pending.documentPath(),
+                DocumentStatus.PROCESSING,
+                pending.batchIndex(),
+                Instant.parse("2026-04-19T18:00:01Z"),
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+        ));
+
+        int recovered = runtimeRecoveryService.reconcileOrphanProcessingDocuments();
+
+        assertEquals(1, recovered);
+        assertEquals(DocumentStatus.PENDING, documentExecutionRepository.findByProcessId(processId).getFirst().documentStatus());
+        assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "RUNTIME_RECOVERY_APPLIED".equals(log.eventType())));
+    }
+
+    @Test
+    void runtimeMetricsIncreaseAtCriticalPoints() throws Exception {
+        String processId = createAndAuthorize(List.of("doc-01.txt"));
+
+        processDispatcher.dispatchOnce();
+        waitFor(() -> progressSnapshotRepository.findByProcessId(processId).orElseThrow().processedFiles() == 1);
+
+        assertTrue(counterValue("processes_dispatched_total") >= 1.0);
+        assertTrue(counterValue("lease_acquired_total") >= 1.0);
+        assertTrue(counterValue("documents_processed_total") >= 1.0);
+        assertTrue(counterValue("checkpoint_resolutions_total") >= 1.0);
+        assertTrue(counterValue("process_completed_total") >= 1.0);
+    }
+
+    private double counterValue(String meterName) {
+        var counter = meterRegistry.find(meterName).counter();
+        return counter == null ? 0.0 : counter.count();
     }
 
     @Test

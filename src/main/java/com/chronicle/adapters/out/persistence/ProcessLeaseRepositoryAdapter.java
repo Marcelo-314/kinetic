@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @Repository
 public class ProcessLeaseRepositoryAdapter implements ProcessLeasePort {
@@ -84,5 +85,15 @@ public class ProcessLeaseRepositoryAdapter implements ProcessLeasePort {
         repository.findById(processId)
                 .filter(lease -> ownerId.equals(lease.getOwnerId()))
                 .ifPresent(repository::delete);
+    }
+
+    @Override
+    public boolean hasActiveLease(String processId, Instant now) {
+        return repository.existsByProcessIdAndLeaseUntilAfter(processId, now);
+    }
+
+    @Override
+    public Optional<String> findOwnerId(String processId) {
+        return repository.findByProcessId(processId).map(ProcessLeaseJpaEntity::getOwnerId);
     }
 }
