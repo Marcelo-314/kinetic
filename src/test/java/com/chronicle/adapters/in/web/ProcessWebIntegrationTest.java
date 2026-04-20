@@ -3,6 +3,8 @@ package com.chronicle.adapters.in.web;
 import com.chronicle.bootstrap.ChronicleApplication;
 import com.chronicle.domain.model.AuthorizationInfo;
 import com.chronicle.domain.model.AuthorizationState;
+import com.chronicle.domain.model.DocumentExecution;
+import com.chronicle.domain.model.DocumentStatus;
 import com.chronicle.domain.model.ExecutionControlFlags;
 import com.chronicle.domain.model.ProcessAggregate;
 import com.chronicle.domain.model.ProcessPlan;
@@ -12,10 +14,12 @@ import com.chronicle.domain.model.SelectionMode;
 import com.chronicle.domain.model.SummaryPolicy;
 import com.chronicle.domain.model.FailurePolicy;
 import com.chronicle.domain.port.AuthorizationInfoRepository;
+import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.ProcessPlanRepository;
 import com.chronicle.domain.port.ProcessRepository;
 import com.chronicle.domain.port.ProgressSnapshotRepository;
+import com.chronicle.domain.port.TerminalInfoRepository;
 import com.chronicle.domain.state.ProcessState;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +38,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -74,11 +79,18 @@ class ProcessWebIntegrationTest {
     @Autowired
     private ExecutionControlFlagsRepository executionControlFlagsRepository;
 
+    @Autowired
+    private DocumentExecutionRepository documentExecutionRepository;
+
+    @Autowired
+    private TerminalInfoRepository terminalInfoRepository;
+
     private Path sourceFolder;
 
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.execute("DELETE FROM activity_log");
+        jdbcTemplate.execute("DELETE FROM process_result");
         jdbcTemplate.execute("DELETE FROM process_lease");
         jdbcTemplate.execute("DELETE FROM terminal_info");
         jdbcTemplate.execute("DELETE FROM document_execution");
@@ -152,6 +164,66 @@ class ProcessWebIntegrationTest {
                 .andExpect(jsonPath("$.items", hasSize(3)))
                 .andExpect(jsonPath("$.page").value(1))
                 .andExpect(jsonPath("$.page_size").value(20));
+    }
+
+    @Test
+    void resultsEndpointReturnsHonestProjectionAndSupportsQueryFlags() throws Exception {
+        String pendingId = createProcess();
+        String stoppedNoneId = seedStoppedProcess("stopped-none", List.of(), ResultKind.NONE, false);
+        String stoppedPartialId = processIdFor("stopped-partial");
+        seedStoppedProcess("stopped-partial", List.of(
+                processedDocument(stoppedPartialId, "doc-stop-1", "doc-01.txt", 3, 1, 20, List.of("chronicle", "runtime"), "Stopped summary")
+        ), ResultKind.PARTIAL, true);
+        String failedNoneId = seedFailedProcess("failed-none", List.of(), ResultKind.NONE, false);
+        String failedPartialId = processIdFor("failed-partial");
+        seedFailedProcess("failed-partial", List.of(
+                failedDocument(failedPartialId, "doc-fail-1", "doc-02.txt", "DOCUMENT_READ_ERROR", "boom")
+        ), ResultKind.PARTIAL, true);
+        String completedId = processIdFor("completed");
+        seedCompletedProcess();
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", pendingId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result_kind").value("NONE"))
+                .andExpect(jsonPath("$.documents", hasSize(0)))
+                .andExpect(jsonPath("$.coverage.included_files").value(0));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", stoppedNoneId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.process_status").value("STOPPED"))
+                .andExpect(jsonPath("$.result_kind").value("NONE"));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", stoppedPartialId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.process_status").value("STOPPED"))
+                .andExpect(jsonPath("$.result_kind").value("PARTIAL"))
+                .andExpect(jsonPath("$.documents", hasSize(1)));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", failedNoneId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.process_status").value("FAILED"))
+                .andExpect(jsonPath("$.result_kind").value("NONE"));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", failedPartialId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.process_status").value("FAILED"))
+                .andExpect(jsonPath("$.result_kind").value("PARTIAL"))
+                .andExpect(jsonPath("$.excluded_documents", hasSize(1)));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", completedId)
+                        .queryParam("include_documents", "false")
+                        .queryParam("include_global_summary", "false")
+                        .queryParam("top_words_limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.process_status").value("COMPLETED"))
+                .andExpect(jsonPath("$.result_kind").value("FINAL"))
+                .andExpect(jsonPath("$.documents", hasSize(0)))
+                .andExpect(jsonPath("$.global_summary").value(nullValue()))
+                .andExpect(jsonPath("$.most_frequent_words", hasSize(1)));
+
+        mockMvc.perform(get("/api/v1/processes/{process_id}/results", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PROCESS_NOT_FOUND"));
     }
 
     @Test
@@ -277,6 +349,168 @@ class ProcessWebIntegrationTest {
         executionControlFlagsRepository.save(new ExecutionControlFlags(processId, false, false, now, "PAUSE"));
 
         return processId;
+    }
+
+    private String seedStoppedProcess(String suffix, List<DocumentExecution> documents, ResultKind resultKind, boolean withTerminalInfo) {
+        return seedProcessWithDocuments(suffix, ProcessState.stopped(), documents, resultKind, withTerminalInfo);
+    }
+
+    private String seedFailedProcess(String suffix, List<DocumentExecution> documents, ResultKind resultKind, boolean withTerminalInfo) {
+        return seedProcessWithDocuments(suffix, ProcessState.failed(), documents, resultKind, withTerminalInfo);
+    }
+
+    private String seedCompletedProcess() {
+        return seedProcessWithDocuments(
+                "completed",
+                ProcessState.completed(),
+                List.of(
+                        processedDocument(processIdFor("completed"), "doc-complete-1", "doc-01.txt", 5, 2, 30, List.of("chronicle", "runtime"), "First summary"),
+                        processedDocument(processIdFor("completed"), "doc-complete-2", "doc-02.txt", 4, 1, 25, List.of("runtime", "results"), "Second summary")
+                ),
+                ResultKind.FINAL,
+                true
+        );
+    }
+
+    private String seedProcessWithDocuments(
+            String suffix,
+            ProcessState state,
+            List<DocumentExecution> documents,
+            ResultKind resultKind,
+            boolean withTerminalInfo
+    ) {
+        String processId = processIdFor(suffix);
+        Instant now = Instant.parse("2026-04-19T18:00:00Z");
+        int successfulFiles = (int) documents.stream().filter(document -> document.documentStatus() == DocumentStatus.PROCESSED).count();
+        int failedFiles = (int) documents.stream().filter(document -> document.documentStatus() == DocumentStatus.FAILED).count();
+        int processedFiles = successfulFiles + failedFiles;
+        int totalFiles = 2;
+        int pendingFiles = Math.max(totalFiles - processedFiles, 0);
+        double percentage = totalFiles == 0 ? 0.0 : (processedFiles * 100.0) / totalFiles;
+
+        processRepository.save(new ProcessAggregate(
+                processId,
+                state,
+                2L,
+                now,
+                now,
+                "Result projection process",
+                resultKind,
+                false,
+                false
+        ));
+        processPlanRepository.save(new ProcessPlan(
+                "plan-" + suffix,
+                processId,
+                sourceFolder.toString(),
+                SelectionMode.EXPLICIT_SELECTION,
+                List.of("doc-01.txt", "doc-02.txt"),
+                totalFiles,
+                1,
+                SummaryPolicy.EXTRACTIVE_DETERMINISTIC,
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                now
+        ));
+        authorizationInfoRepository.save(new AuthorizationInfo(
+                "auth-" + suffix,
+                processId,
+                true,
+                AuthorizationState.AUTHORIZED,
+                null,
+                now,
+                null,
+                now
+        ));
+        progressSnapshotRepository.save(new ProgressSnapshot(
+                "progress-" + suffix,
+                processId,
+                totalFiles,
+                processedFiles,
+                successfulFiles,
+                failedFiles,
+                pendingFiles,
+                percentage,
+                1,
+                1,
+                now,
+                null,
+                now
+        ));
+        executionControlFlagsRepository.save(new ExecutionControlFlags(processId, false, false, now, null));
+        documents.forEach(documentExecutionRepository::save);
+        if (withTerminalInfo) {
+            terminalInfoRepository.save(new com.chronicle.domain.model.TerminalInfo(
+                    "terminal-" + suffix,
+                    processId,
+                    state.code(),
+                    now,
+                    state.code() + "_TERMINAL",
+                    "Terminal state recorded for results projection.",
+                    percentage
+            ));
+        }
+        return processId;
+    }
+
+    private DocumentExecution processedDocument(
+            String processId,
+            String documentExecutionId,
+            String documentName,
+            int wordCount,
+            int lineCount,
+            int characterCount,
+            List<String> terms,
+            String summary
+    ) {
+        return new DocumentExecution(
+                documentExecutionId,
+                processId,
+                documentName,
+                sourceFolder.resolve(documentName).toString(),
+                DocumentStatus.PROCESSED,
+                1,
+                Instant.parse("2026-04-19T18:00:00Z"),
+                Instant.parse("2026-04-19T18:01:00Z"),
+                wordCount,
+                lineCount,
+                characterCount,
+                terms.stream().map(term -> new com.chronicle.domain.model.WordFrequency(term, 2)).toList(),
+                summary,
+                SummaryPolicy.EXTRACTIVE_DETERMINISTIC,
+                null,
+                null
+        );
+    }
+
+    private DocumentExecution failedDocument(
+            String processId,
+            String documentExecutionId,
+            String documentName,
+            String errorCode,
+            String errorMessage
+    ) {
+        return new DocumentExecution(
+                documentExecutionId,
+                processId,
+                documentName,
+                sourceFolder.resolve(documentName).toString(),
+                DocumentStatus.FAILED,
+                1,
+                Instant.parse("2026-04-19T18:00:00Z"),
+                Instant.parse("2026-04-19T18:01:00Z"),
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                errorCode,
+                errorMessage
+        );
+    }
+
+    private String processIdFor(String suffix) {
+        return "00000000-0000-0000-0001-" + String.format("%012d", Math.abs(suffix.hashCode()));
     }
 
     private String escapePath(Path path) {

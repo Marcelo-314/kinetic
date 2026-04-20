@@ -78,6 +78,10 @@ class ApplicationUseCasesTest {
         assertEquals(2, ctx.progressSnapshotRepository.findByProcessId(process.processId()).orElseThrow().totalFiles());
         assertFalse(ctx.executionControlFlagsRepository.findByProcessId(process.processId()).orElseThrow().pauseRequested());
         assertEquals(1, ctx.activityLogRepository.findByProcessId(process.processId()).size());
+        assertEquals(
+                "Process created and awaiting authorization.",
+                ctx.activityLogRepository.findByProcessId(process.processId()).getFirst().message()
+        );
     }
 
     @Test

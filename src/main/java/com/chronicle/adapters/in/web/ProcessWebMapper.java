@@ -2,19 +2,27 @@ package com.chronicle.adapters.in.web;
 
 import com.chronicle.adapters.in.web.dto.AuthorizationViewDto;
 import com.chronicle.adapters.in.web.dto.CommandAcceptedResponseDto;
+import com.chronicle.adapters.in.web.dto.CoverageViewDto;
 import com.chronicle.adapters.in.web.dto.CreateProcessRequestDto;
 import com.chronicle.adapters.in.web.dto.CreateProcessResponseDto;
+import com.chronicle.adapters.in.web.dto.DocumentResultDto;
+import com.chronicle.adapters.in.web.dto.ExcludedDocumentDto;
 import com.chronicle.adapters.in.web.dto.ProcessListItemDto;
 import com.chronicle.adapters.in.web.dto.ProcessListProgressDto;
 import com.chronicle.adapters.in.web.dto.ProcessListResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessPlanDto;
+import com.chronicle.adapters.in.web.dto.ProcessResultsResponseDto;
 import com.chronicle.adapters.in.web.dto.ProcessStatusResponseDto;
 import com.chronicle.adapters.in.web.dto.ProgressViewDto;
 import com.chronicle.adapters.in.web.dto.TerminalInfoDto;
+import com.chronicle.adapters.in.web.dto.TotalsViewDto;
+import com.chronicle.adapters.in.web.dto.WordFrequencyDto;
 import com.chronicle.application.query.ProcessListItemView;
 import com.chronicle.application.query.ProcessListView;
+import com.chronicle.application.query.ProcessResultsView;
 import com.chronicle.application.query.ProcessStatusView;
 import com.chronicle.application.request.CreateProcessRequest;
+import com.chronicle.domain.model.DocumentExecution;
 import com.chronicle.domain.model.FailurePolicy;
 import com.chronicle.domain.model.ProcessAggregate;
 import com.chronicle.domain.model.SelectionMode;
@@ -107,6 +115,38 @@ public class ProcessWebMapper {
         );
     }
 
+    public ProcessResultsResponseDto toResultsResponse(ProcessResultsView view) {
+        return new ProcessResultsResponseDto(
+                view.processId(),
+                view.processStatus(),
+                view.resultKind(),
+                view.computedAt(),
+                new CoverageViewDto(
+                        view.plannedFiles(),
+                        view.includedFiles(),
+                        view.excludedFiles(),
+                        view.coveragePercentage()
+                ),
+                new TotalsViewDto(
+                        view.totalWords(),
+                        view.totalLines(),
+                        view.totalCharacters()
+                ),
+                view.mostFrequentWords().stream().map(word -> new WordFrequencyDto(word.term(), word.count())).toList(),
+                view.globalSummary(),
+                view.documents().stream().map(this::toDocumentResult).toList(),
+                view.excludedDocuments().stream()
+                        .map(document -> new ExcludedDocumentDto(document.documentName(), document.reasonCode()))
+                        .toList(),
+                view.terminalInfo() == null ? null : new TerminalInfoDto(
+                        view.terminalInfo().terminalState(),
+                        view.terminalInfo().terminalAt(),
+                        view.terminalInfo().terminalReasonCode(),
+                        view.terminalInfo().terminalReasonMessage()
+                )
+        );
+    }
+
     private ProcessListItemDto toListItem(ProcessListItemView item) {
         return new ProcessListItemDto(
                 item.processId(),
@@ -124,6 +164,21 @@ public class ProcessWebMapper {
                 view.authorization().authorizationState().name(),
                 view.authorization().pendingReason(),
                 view.authorization().authorizedAt()
+        );
+    }
+
+    private DocumentResultDto toDocumentResult(DocumentExecution document) {
+        return new DocumentResultDto(
+                document.documentName(),
+                document.documentStatus().name(),
+                document.wordCount(),
+                document.lineCount(),
+                document.characterCount(),
+                document.mostFrequentWords().stream().map(word -> new WordFrequencyDto(word.term(), word.count())).toList(),
+                document.summary(),
+                document.summaryMethod() == null ? null : document.summaryMethod().name(),
+                document.errorCode(),
+                document.errorMessage()
         );
     }
 

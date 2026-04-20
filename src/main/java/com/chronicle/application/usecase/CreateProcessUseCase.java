@@ -123,8 +123,12 @@ public final class CreateProcessUseCase {
                 now,
                 "PROCESS_CREATED",
                 "APPLICATION",
-                "Process created in PENDING state.",
-                Map.of("status", process.state().code()),
+                "Process created and awaiting authorization.",
+                Map.of(
+                        "status", process.state().code(),
+                        "authorization_state", authorizationInfo.authorizationState().name(),
+                        "pending_reason", AWAITING_AUTHORIZATION
+                ),
                 processId
         );
 
