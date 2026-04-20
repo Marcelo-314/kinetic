@@ -230,7 +230,7 @@ class ApplicationUseCasesTest {
         }
 
         String seedRunningProcess() {
-            ProcessAggregate process = new ProcessAggregate("process-running", com.chronicle.domain.state.ProcessState.running(), 2L, false, false);
+            ProcessAggregate process = ProcessAggregate.rehydrate("process-running", com.chronicle.domain.state.ProcessState.running(), 2L, false, false);
             processRepository.save(process);
             executionControlFlagsRepository.save(new ExecutionControlFlags(process.processId(), false, false, null, null));
             authorizationInfoRepository.save(new AuthorizationInfo("auth-running", process.processId(), true, AuthorizationState.AUTHORIZED, null, clockPort.now(), null, clockPort.now()));
@@ -239,7 +239,7 @@ class ApplicationUseCasesTest {
         }
 
         String seedPausedProcess() {
-            ProcessAggregate process = new ProcessAggregate("process-paused", com.chronicle.domain.state.ProcessState.paused(), 2L, false, false);
+            ProcessAggregate process = ProcessAggregate.rehydrate("process-paused", com.chronicle.domain.state.ProcessState.paused(), 2L, false, false);
             processRepository.save(process);
             executionControlFlagsRepository.save(new ExecutionControlFlags(process.processId(), false, false, null, null));
             return process.processId();
@@ -274,6 +274,11 @@ class ApplicationUseCasesTest {
         @Override
         public Optional<ProcessAggregate> findById(String processId) {
             return Optional.ofNullable(store.get(processId));
+        }
+
+        @Override
+        public List<ProcessAggregate> findAll() {
+            return new ArrayList<>(store.values());
         }
 
         @Override

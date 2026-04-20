@@ -47,10 +47,13 @@ public final class StopProcessUseCase {
     }
 
     public ProcessAggregate execute(ProcessCommandRequest request) {
+        var now = clockPort.now();
         ProcessAggregate process = processRepository.findById(request.processId())
                 .orElseThrow(() -> new ProcessNotFoundException(request.processId()));
 
-        ProcessAggregate newProcess = transitionEngine.apply(process, new StopProcess(), TransitionContext.empty()).newAggregate();
+        ProcessAggregate newProcess = transitionEngine.apply(process, new StopProcess(), TransitionContext.empty())
+                .newAggregate()
+                .touch(now);
         processRepository.save(newProcess);
 
         if (newProcess.state().isTerminal()) {
@@ -58,14 +61,14 @@ public final class StopProcessUseCase {
                     request.processId(),
                     false,
                     false,
-                    clockPort.now(),
+                    now,
                     "STOP"
             ));
             terminalInfoRepository.save(new TerminalInfo(
                     idGeneratorPort.generate(),
                     request.processId(),
                     newProcess.state().code(),
-                    clockPort.now(),
+                    now,
                     "MANUAL_STOP",
                     "Process stopped by external command.",
                     0.0
@@ -75,7 +78,7 @@ public final class StopProcessUseCase {
                     request.processId(),
                     newProcess.pauseRequested(),
                     true,
-                    clockPort.now(),
+                    now,
                     "STOP"
             ));
         }
@@ -83,7 +86,7 @@ public final class StopProcessUseCase {
         activityLogRepository.save(new ActivityLogEntry(
                 idGeneratorPort.generate(),
                 request.processId(),
-                clockPort.now(),
+                now,
                 newProcess.state().isTerminal() ? "PROCESS_STOPPED" : "STOP_REQUESTED",
                 "APPLICATION",
                 newProcess.state().isTerminal()

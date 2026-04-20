@@ -48,10 +48,13 @@ public final class AuthorizeProcessUseCase {
     }
 
     public ProcessAggregate execute(ProcessCommandRequest request) {
+        var now = clockPort.now();
         ProcessAggregate process = processRepository.findById(request.processId())
                 .orElseThrow(() -> new ProcessNotFoundException(request.processId()));
 
-        ProcessAggregate newProcess = transitionEngine.apply(process, new AuthorizeProcess(), TransitionContext.empty()).newAggregate();
+        ProcessAggregate newProcess = transitionEngine.apply(process, new AuthorizeProcess(), TransitionContext.empty())
+                .newAggregate()
+                .touch(now);
         processRepository.save(newProcess);
 
         AuthorizationInfo authorizationInfo = authorizationInfoRepository.findByProcessId(request.processId())
@@ -62,9 +65,9 @@ public final class AuthorizeProcessUseCase {
                 authorizationInfo.authorizationRequired(),
                 AuthorizationState.AUTHORIZED,
                 null,
-                clockPort.now(),
+                now,
                 authorizationInfo.authorizationNote(),
-                clockPort.now()
+                now
         ));
 
         ProgressSnapshot progressSnapshot = progressSnapshotRepository.findByProcessId(request.processId())
@@ -80,7 +83,7 @@ public final class AuthorizeProcessUseCase {
                 progressSnapshot.percentage(),
                 progressSnapshot.currentBatchIndex(),
                 progressSnapshot.currentBatchSize(),
-                clockPort.now(),
+                now,
                 progressSnapshot.estimatedCompletion(),
                 progressSnapshot.lastProgressAt()
         ));
@@ -88,7 +91,7 @@ public final class AuthorizeProcessUseCase {
         activityLogRepository.save(new ActivityLogEntry(
                 idGeneratorPort.generate(),
                 request.processId(),
-                clockPort.now(),
+                now,
                 "PROCESS_AUTHORIZED",
                 "APPLICATION",
                 "Process authorized and moved to RUNNING.",

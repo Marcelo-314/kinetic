@@ -42,22 +42,25 @@ public final class ResumeProcessUseCase {
     }
 
     public ProcessAggregate execute(ProcessCommandRequest request) {
+        var now = clockPort.now();
         ProcessAggregate process = processRepository.findById(request.processId())
                 .orElseThrow(() -> new ProcessNotFoundException(request.processId()));
 
-        ProcessAggregate newProcess = transitionEngine.apply(process, new ResumeProcess(), TransitionContext.empty()).newAggregate();
+        ProcessAggregate newProcess = transitionEngine.apply(process, new ResumeProcess(), TransitionContext.empty())
+                .newAggregate()
+                .touch(now);
         processRepository.save(newProcess);
         executionControlFlagsRepository.save(new ExecutionControlFlags(
                 request.processId(),
                 false,
                 false,
-                clockPort.now(),
+                now,
                 "RESUME"
         ));
         activityLogRepository.save(new ActivityLogEntry(
                 idGeneratorPort.generate(),
                 request.processId(),
-                clockPort.now(),
+                now,
                 "PROCESS_RESUMED",
                 "APPLICATION",
                 "Paused process resumed.",

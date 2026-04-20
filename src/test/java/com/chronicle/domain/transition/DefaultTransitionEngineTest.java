@@ -237,22 +237,22 @@ class DefaultTransitionEngineTest {
     }
 
     private static ProcessAggregate running(String processId) {
-        return new ProcessAggregate(processId, ProcessState.running(), 1L, false, false);
+        return ProcessAggregate.rehydrate(processId, ProcessState.running(), 1L, false, false);
     }
 
     private static ProcessAggregate paused(String processId) {
-        return new ProcessAggregate(processId, ProcessState.paused(), 1L, false, false);
+        return ProcessAggregate.rehydrate(processId, ProcessState.paused(), 1L, false, false);
     }
 
     private static ProcessAggregate completed(String processId) {
-        return new ProcessAggregate(processId, ProcessState.completed(), 1L, false, false);
+        return ProcessAggregate.rehydrate(processId, ProcessState.completed(), 1L, false, false);
     }
 
     private static ProcessAggregate failed(String processId) {
-        return new ProcessAggregate(processId, ProcessState.failed(), 1L, false, false);
+        return ProcessAggregate.rehydrate(processId, ProcessState.failed(), 1L, false, false);
     }
 
     private static ProcessAggregate stopped(String processId) {
-        return new ProcessAggregate(processId, ProcessState.stopped(), 1L, false, false);
+        return ProcessAggregate.rehydrate(processId, ProcessState.stopped(), 1L, false, false);
     }
 }
