@@ -8,6 +8,7 @@ import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -30,6 +31,11 @@ public class ProcessRepositoryAdapter implements ProcessRepository {
     @Override
     public Optional<ProcessAggregate> findById(String processId) {
         return repository.findById(processId).map(mapper::toDomain);
+    }
+
+    @Override
+    public List<ProcessAggregate> findAll() {
+        return repository.findAll().stream().map(mapper::toDomain).toList();
     }
 
     @Override

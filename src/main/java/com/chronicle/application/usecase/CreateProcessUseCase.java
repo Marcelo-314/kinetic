@@ -1,6 +1,7 @@
 package com.chronicle.application.usecase;
 
 import com.chronicle.application.request.CreateProcessRequest;
+import com.chronicle.application.exception.SemanticValidationException;
 import com.chronicle.domain.model.ActivityLogEntry;
 import com.chronicle.domain.model.AuthorizationInfo;
 import com.chronicle.domain.model.AuthorizationState;
@@ -9,6 +10,7 @@ import com.chronicle.domain.model.ProcessAggregate;
 import com.chronicle.domain.model.ProcessPlan;
 import com.chronicle.domain.model.ProgressSnapshot;
 import com.chronicle.domain.model.SelectionMode;
+import com.chronicle.domain.model.SummaryPolicy;
 import com.chronicle.domain.port.ActivityLogRepository;
 import com.chronicle.domain.port.AuthorizationInfoRepository;
 import com.chronicle.domain.port.ClockPort;
@@ -65,7 +67,7 @@ public final class CreateProcessUseCase {
         Instant now = clockPort.now();
         String processId = idGeneratorPort.generate();
         List<String> selectedFiles = resolveSelectedFiles(request);
-        ProcessAggregate process = ProcessAggregate.pending(processId);
+        ProcessAggregate process = ProcessAggregate.pending(processId, request.objective(), now);
 
         ProcessPlan plan = new ProcessPlan(
                 idGeneratorPort.generate(),
@@ -144,13 +146,16 @@ public final class CreateProcessUseCase {
             throw new IllegalArgumentException("sourceFolder must not be blank");
         }
         if (!fileSourcePort.folderExists(request.sourceFolder())) {
-            throw new IllegalArgumentException("sourceFolder must exist");
+            throw new SemanticValidationException(
+                    "sourceFolder must exist",
+                    Map.of("source_folder", request.sourceFolder())
+            );
         }
         if (request.batchSize() <= 0) {
             throw new IllegalArgumentException("batchSize must be greater than zero");
         }
         if (request.selectionMode() == SelectionMode.EXPLICIT_SELECTION && request.selectedFiles().isEmpty()) {
-            throw new IllegalArgumentException("selectedFiles must not be empty for explicit selection");
+            throw new SemanticValidationException("selectedFiles must not be empty for explicit selection");
         }
     }
 

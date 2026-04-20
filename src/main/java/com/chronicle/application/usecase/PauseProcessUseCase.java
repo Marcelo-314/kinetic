@@ -42,22 +42,25 @@ public final class PauseProcessUseCase {
     }
 
     public ProcessAggregate execute(ProcessCommandRequest request) {
+        var now = clockPort.now();
         ProcessAggregate process = processRepository.findById(request.processId())
                 .orElseThrow(() -> new ProcessNotFoundException(request.processId()));
 
-        ProcessAggregate newProcess = transitionEngine.apply(process, new PauseProcess(), TransitionContext.empty()).newAggregate();
+        ProcessAggregate newProcess = transitionEngine.apply(process, new PauseProcess(), TransitionContext.empty())
+                .newAggregate()
+                .touch(now);
         processRepository.save(newProcess);
         executionControlFlagsRepository.save(new ExecutionControlFlags(
                 request.processId(),
                 true,
                 newProcess.stopRequested(),
-                clockPort.now(),
+                now,
                 "PAUSE"
         ));
         activityLogRepository.save(new ActivityLogEntry(
                 idGeneratorPort.generate(),
                 request.processId(),
-                clockPort.now(),
+                now,
                 "PAUSE_REQUESTED",
                 "APPLICATION",
                 "Pause requested for running process.",
