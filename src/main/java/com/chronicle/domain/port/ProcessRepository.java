@@ -11,5 +11,7 @@ public interface ProcessRepository {
 
     List<ProcessAggregate> findAll();
 
+    List<ProcessAggregate> findRunnableProcesses(int limit);
+
     ProcessAggregate save(ProcessAggregate aggregate);
 }

@@ -44,7 +44,7 @@ public class ProcessWebMapper {
         return new CreateProcessResponseDto(
                 view.processId(),
                 view.status(),
-                "Process created successfully.",
+                "Process created and awaiting authorization.",
                 toAuthorizationView(view),
                 linksFor(view.processId())
         );

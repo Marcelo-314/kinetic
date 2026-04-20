@@ -8,6 +8,7 @@ import com.chronicle.domain.model.AuthorizationInfo;
 import com.chronicle.domain.model.AuthorizationState;
 import com.chronicle.domain.model.ExecutionControlFlags;
 import com.chronicle.domain.model.FailurePolicy;
+import com.chronicle.domain.model.DocumentExecution;
 import com.chronicle.domain.model.ProcessAggregate;
 import com.chronicle.domain.model.ProcessPlan;
 import com.chronicle.domain.model.ProgressSnapshot;
@@ -17,6 +18,7 @@ import com.chronicle.domain.model.TerminalInfo;
 import com.chronicle.domain.port.ActivityLogRepository;
 import com.chronicle.domain.port.AuthorizationInfoRepository;
 import com.chronicle.domain.port.ClockPort;
+import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.FileSourcePort;
 import com.chronicle.domain.port.IdGeneratorPort;
@@ -84,8 +86,10 @@ class ApplicationUseCasesTest {
         String processId = ctx.seedPendingProcess();
         AuthorizeProcessUseCase useCase = new AuthorizeProcessUseCase(
                 ctx.processRepository,
+                ctx.processPlanRepository,
                 ctx.authorizationInfoRepository,
                 ctx.progressSnapshotRepository,
+                ctx.documentExecutionRepository,
                 ctx.activityLogRepository,
                 ctx.clockPort,
                 ctx.idGeneratorPort,
@@ -105,8 +109,10 @@ class ApplicationUseCasesTest {
         String processId = ctx.seedRunningProcess();
         AuthorizeProcessUseCase useCase = new AuthorizeProcessUseCase(
                 ctx.processRepository,
+                ctx.processPlanRepository,
                 ctx.authorizationInfoRepository,
                 ctx.progressSnapshotRepository,
+                ctx.documentExecutionRepository,
                 ctx.activityLogRepository,
                 ctx.clockPort,
                 ctx.idGeneratorPort,
@@ -216,6 +222,7 @@ class ApplicationUseCasesTest {
         private final InMemoryExecutionControlFlagsRepository executionControlFlagsRepository = new InMemoryExecutionControlFlagsRepository();
         private final InMemoryTerminalInfoRepository terminalInfoRepository = new InMemoryTerminalInfoRepository();
         private final InMemoryActivityLogRepository activityLogRepository = new InMemoryActivityLogRepository();
+        private final InMemoryDocumentExecutionRepository documentExecutionRepository = new InMemoryDocumentExecutionRepository();
         private final ClockPort clockPort = () -> Instant.parse("2026-04-19T15:00:00Z");
         private final IdGeneratorPort idGeneratorPort = new SequenceIdGenerator();
         private final FileSourcePort fileSourcePort = new InMemoryFileSourcePort();
@@ -223,6 +230,18 @@ class ApplicationUseCasesTest {
         String seedPendingProcess() {
             ProcessAggregate process = ProcessAggregate.pending("process-pending");
             processRepository.save(process);
+            processPlanRepository.save(new ProcessPlan(
+                    "plan-pending",
+                    process.processId(),
+                    "/data/input",
+                    SelectionMode.EXPLICIT_SELECTION,
+                    List.of("doc-01.txt", "doc-02.txt"),
+                    2,
+                    1,
+                    SummaryPolicy.EXTRACTIVE_DETERMINISTIC,
+                    FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                    clockPort.now()
+            ));
             authorizationInfoRepository.save(new AuthorizationInfo("auth-pending", process.processId(), true, AuthorizationState.WAITING, "AWAITING_AUTHORIZATION", null, null, clockPort.now()));
             progressSnapshotRepository.save(new ProgressSnapshot("prog-pending", process.processId(), 2, 0, 0, 0, 2, 0.0, null, null, null, null, null));
             executionControlFlagsRepository.save(new ExecutionControlFlags(process.processId(), false, false, null, null));
@@ -266,6 +285,11 @@ class ApplicationUseCasesTest {
         public List<String> listTextFiles(String sourceFolder) {
             return List.of("doc-01.txt", "doc-02.txt");
         }
+
+        @Override
+        public String readTextFile(String sourceFolder, String documentName) {
+            return "sample content";
+        }
     }
 
     private static final class InMemoryProcessRepository implements ProcessRepository {
@@ -279,6 +303,14 @@ class ApplicationUseCasesTest {
         @Override
         public List<ProcessAggregate> findAll() {
             return new ArrayList<>(store.values());
+        }
+
+        @Override
+        public List<ProcessAggregate> findRunnableProcesses(int limit) {
+            return store.values().stream()
+                    .filter(process -> "RUNNING".equals(process.state().code()))
+                    .limit(limit)
+                    .toList();
         }
 
         @Override
@@ -375,6 +407,39 @@ class ApplicationUseCasesTest {
         @Override
         public List<ActivityLogEntry> findByProcessId(String processId) {
             return store.getOrDefault(processId, List.of());
+        }
+    }
+
+    private static final class InMemoryDocumentExecutionRepository implements DocumentExecutionRepository {
+        private final Map<String, List<DocumentExecution>> store = new HashMap<>();
+
+        @Override
+        public DocumentExecution save(DocumentExecution documentExecution) {
+            var documents = new ArrayList<>(store.getOrDefault(documentExecution.processId(), List.of()));
+            documents.removeIf(existing -> existing.documentExecutionId().equals(documentExecution.documentExecutionId()));
+            documents.add(documentExecution);
+            store.put(documentExecution.processId(), documents);
+            return documentExecution;
+        }
+
+        @Override
+        public List<DocumentExecution> findByProcessId(String processId) {
+            return store.getOrDefault(processId, List.of());
+        }
+
+        @Override
+        public Optional<DocumentExecution> findNextPendingByProcessId(String processId) {
+            return store.getOrDefault(processId, List.of()).stream().findFirst();
+        }
+
+        @Override
+        public Optional<DocumentExecution> findProcessingByProcessId(String processId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public long countPendingByProcessId(String processId) {
+            return store.getOrDefault(processId, List.of()).size();
         }
     }
 }

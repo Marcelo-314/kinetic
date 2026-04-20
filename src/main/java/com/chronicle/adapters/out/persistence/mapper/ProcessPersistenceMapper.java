@@ -37,6 +37,20 @@ public class ProcessPersistenceMapper {
         return entity;
     }
 
+    public ProcessJpaEntity toEntityUsingCurrentPersistedVersion(ProcessAggregate aggregate, long currentPersistedVersion) {
+        ProcessJpaEntity entity = new ProcessJpaEntity();
+        entity.setProcessId(aggregate.processId());
+        entity.setStatus(aggregate.state().code());
+        entity.setVersion(currentPersistedVersion);
+        entity.setCreatedAt(aggregate.createdAt());
+        entity.setUpdatedAt(aggregate.updatedAt());
+        entity.setObjective(aggregate.objective());
+        entity.setResultKind(aggregate.resultKind().name());
+        entity.setPauseRequested(aggregate.pauseRequested());
+        entity.setStopRequested(aggregate.stopRequested());
+        return entity;
+    }
+
     public ProcessAggregate toDomain(ProcessJpaEntity entity) {
         return new ProcessAggregate(
                 entity.getProcessId(),
@@ -60,7 +74,7 @@ public class ProcessPersistenceMapper {
         return domainVersion - 2;
     }
 
-    private long toDomainVersion(Long persistedVersion) {
+    public long toDomainVersion(Long persistedVersion) {
         // The persisted version is the technical JPA value. The domain exposes the same lifecycle starting at 1.
         return persistedVersion + 1;
     }

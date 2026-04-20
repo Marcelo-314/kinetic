@@ -10,6 +10,7 @@ import com.chronicle.application.usecase.StopProcessUseCase;
 import com.chronicle.domain.port.ActivityLogRepository;
 import com.chronicle.domain.port.AuthorizationInfoRepository;
 import com.chronicle.domain.port.ClockPort;
+import com.chronicle.domain.port.DocumentExecutionRepository;
 import com.chronicle.domain.port.ExecutionControlFlagsRepository;
 import com.chronicle.domain.port.FileSourcePort;
 import com.chronicle.domain.port.IdGeneratorPort;
@@ -72,8 +73,10 @@ public class ApplicationConfiguration {
     @Bean
     AuthorizeProcessUseCase authorizeProcessUseCase(
             ProcessRepository processRepository,
+            ProcessPlanRepository processPlanRepository,
             AuthorizationInfoRepository authorizationInfoRepository,
             ProgressSnapshotRepository progressSnapshotRepository,
+            DocumentExecutionRepository documentExecutionRepository,
             ActivityLogRepository activityLogRepository,
             ClockPort clockPort,
             IdGeneratorPort idGeneratorPort,
@@ -81,8 +84,10 @@ public class ApplicationConfiguration {
     ) {
         return new AuthorizeProcessUseCase(
                 processRepository,
+                processPlanRepository,
                 authorizationInfoRepository,
                 progressSnapshotRepository,
+                documentExecutionRepository,
                 activityLogRepository,
                 clockPort,
                 idGeneratorPort,

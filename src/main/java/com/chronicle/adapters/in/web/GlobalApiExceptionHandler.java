@@ -26,13 +26,13 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler(InvalidTransitionException.class)
     public ResponseEntity<ErrorResponseDto> handleInvalidTransition(InvalidTransitionException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ErrorResponseDto.of("INVALID_TRANSITION", exception.getMessage()));
+                .body(ErrorResponseDto.of("INVALID_STATE_TRANSITION", exception.getMessage()));
     }
 
     @ExceptionHandler(SemanticValidationException.class)
     public ResponseEntity<ErrorResponseDto> handleSemanticValidation(SemanticValidationException exception) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(ErrorResponseDto.of("SEMANTIC_VALIDATION_ERROR", exception.getMessage(), exception.details()));
+                .body(ErrorResponseDto.of(exception.code(), exception.getMessage(), exception.details()));
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, BindException.class, IllegalArgumentException.class})

@@ -22,3 +22,13 @@ spring:
 
 server:
   shutdown: graceful
+
+chronicle:
+  runtime:
+    scheduler:
+      enabled: true
+    dispatcher:
+      fixed-delay-ms: 1000
+    max-concurrent-processes: 4
+    lease-duration-seconds: 30
+    scan-limit: 20
