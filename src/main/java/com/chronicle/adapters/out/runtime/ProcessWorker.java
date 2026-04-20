@@ -374,6 +374,9 @@ public class ProcessWorker {
                 ),
                 preparedStep.process().processId()
         ));
+        ProcessAggregate refreshedProcess = preparedStep.process().touch(now);
+        processRepository.save(refreshedProcess);
+        processResultProjectionService.snapshotCurrent(refreshedProcess);
         runtimeTelemetry.recordWorkerAborted(
                 preparedStep.process().processId(),
                 preparedStep.documentExecution().documentExecutionId(),

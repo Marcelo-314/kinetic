@@ -312,6 +312,50 @@ class RuntimeIntegrationTest {
     }
 
     @Test
+    void runtimeRecoveryKeepsProgressAndResultsCoherent() {
+        String processId = seedRunningProcess(
+                "recovery-consistency",
+                List.of("doc-01.txt"),
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                false,
+                false,
+                sourceFolder.toString()
+        );
+        ProcessAggregate beforeRecovery = processRepository.findById(processId).orElseThrow();
+        DocumentExecution pending = documentExecutionRepository.findByProcessId(processId).getFirst();
+        documentExecutionRepository.save(new DocumentExecution(
+                pending.documentExecutionId(),
+                pending.processId(),
+                pending.documentName(),
+                pending.documentPath(),
+                DocumentStatus.PROCESSING,
+                pending.batchIndex(),
+                Instant.parse("2026-04-19T18:00:01Z"),
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+        ));
+
+        runtimeRecoveryService.reconcileOrphanProcessingDocuments();
+
+        ProgressSnapshot progress = progressSnapshotRepository.findByProcessId(processId).orElseThrow();
+        ProcessAggregate afterRecovery = processRepository.findById(processId).orElseThrow();
+
+        assertEquals(0, progress.processedFiles());
+        assertEquals(1, progress.pendingFiles());
+        assertEquals(DocumentStatus.PENDING, documentExecutionRepository.findByProcessId(processId).getFirst().documentStatus());
+        assertTrue(processResultRepository.findCurrentByProcessId(processId).isEmpty());
+        assertFalse(afterRecovery.updatedAt().isBefore(beforeRecovery.updatedAt()));
+        assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "RUNTIME_RECOVERY_APPLIED".equals(log.eventType())));
+    }
+
+    @Test
     void runtimeMetricsIncreaseAtCriticalPoints() throws Exception {
         String processId = createAndAuthorize(List.of("doc-01.txt"));
 
@@ -323,6 +367,33 @@ class RuntimeIntegrationTest {
         assertTrue(counterValue("documents_processed_total") >= 1.0);
         assertTrue(counterValue("checkpoint_resolutions_total") >= 1.0);
         assertTrue(counterValue("process_completed_total") >= 1.0);
+    }
+
+    @Test
+    void leaseLossAbortDoesNotCreateClosedEvidenceOrResultSnapshot() throws Exception {
+        String processId = createAndAuthorize(List.of("doc-01.txt"));
+        ProcessAggregate beforeAbort = processRepository.findById(processId).orElseThrow();
+        assertTrue(processLeasePort.tryAcquire(processId, "owner-a", clockPort.now().plusMillis(400)));
+
+        doAnswer(invocation -> {
+            Thread.sleep(700L);
+            String content = invocation.getArgument(0, String.class);
+            return new DocumentAnalysis(4, 1, content.length(), List.of(), "Lease loss summary");
+        }).when(documentAnalyzer).analyze(anyString());
+        doReturn(false).when(spyProcessLeasePort).renew(eq(processId), eq("owner-a"), any(Instant.class));
+
+        processWorker.processNextDocument(processId, "owner-a", java.time.Duration.ofMillis(200));
+
+        ProgressSnapshot progress = progressSnapshotRepository.findByProcessId(processId).orElseThrow();
+        DocumentExecution document = documentExecutionRepository.findByProcessId(processId).getFirst();
+        ProcessAggregate process = processRepository.findById(processId).orElseThrow();
+
+        assertEquals(0, progress.processedFiles());
+        assertEquals(1, progress.pendingFiles());
+        assertEquals(DocumentStatus.PENDING, document.documentStatus());
+        assertTrue(processResultRepository.findCurrentByProcessId(processId).isEmpty());
+        assertFalse(process.updatedAt().isBefore(beforeAbort.updatedAt()));
+        assertTrue(activityLogRepository.findByProcessId(processId).stream().anyMatch(log -> "WORKER_ABORTED".equals(log.eventType())));
     }
 
     private double counterValue(String meterName) {

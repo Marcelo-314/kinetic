@@ -51,7 +51,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         classes = ChronicleApplication.class,
         properties = {
                 "spring.jpa.hibernate.ddl-auto=create-drop",
-                "chronicle.runtime.scheduler.enabled=false"
+                "chronicle.runtime.scheduler.enabled=false",
+                "chronicle.runtime.health.stalled-running-threshold-seconds=1"
         }
 )
 @AutoConfigureMockMvc
@@ -267,6 +268,90 @@ class ProcessWebIntegrationTest {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").exists());
+    }
+
+    @Test
+    void actuatorReadinessReflectsAndRecoversFromStalledRunningProcesses() throws Exception {
+        String processId = "00000000-0000-0000-0000-000000009999";
+        Instant createdAt = Instant.parse("2026-04-19T18:00:00Z");
+        Instant staleProgressAt = Instant.now().minusSeconds(5);
+
+        processRepository.save(new ProcessAggregate(
+                processId,
+                ProcessState.running(),
+                2L,
+                createdAt,
+                createdAt,
+                "Stalled process",
+                ResultKind.NONE,
+                false,
+                false
+        ));
+        processPlanRepository.save(new ProcessPlan(
+                "plan-stalled",
+                processId,
+                sourceFolder.toString(),
+                SelectionMode.EXPLICIT_SELECTION,
+                List.of("doc-01.txt"),
+                1,
+                1,
+                SummaryPolicy.EXTRACTIVE_DETERMINISTIC,
+                FailurePolicy.TOLERATE_PARTIAL_FAILURES,
+                createdAt
+        ));
+        authorizationInfoRepository.save(new AuthorizationInfo(
+                "auth-stalled",
+                processId,
+                true,
+                AuthorizationState.AUTHORIZED,
+                null,
+                createdAt,
+                null,
+                createdAt
+        ));
+        progressSnapshotRepository.save(new ProgressSnapshot(
+                "progress-stalled",
+                processId,
+                1,
+                0,
+                0,
+                0,
+                1,
+                0.0,
+                1,
+                1,
+                createdAt,
+                null,
+                staleProgressAt
+        ));
+        executionControlFlagsRepository.save(new ExecutionControlFlags(processId, false, false, createdAt, null));
+
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components.chronicleRuntime.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.components.chronicleRuntime.details.stalled_running_processes").value(1));
+
+        progressSnapshotRepository.save(new ProgressSnapshot(
+                "progress-stalled",
+                processId,
+                1,
+                0,
+                0,
+                0,
+                1,
+                0.0,
+                1,
+                1,
+                createdAt,
+                null,
+                Instant.now()
+        ));
+
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components.chronicleRuntime.details.stalled_running_processes").value(0));
     }
 
     @Test
