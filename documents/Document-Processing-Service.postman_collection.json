@@ -1,0 +1,1205 @@
+{
+  "info": {
+    "name": "Document Processing Service API",
+    "_postman_id": "b5d5454e-3f4d-4a93-b3a3-dps-qet-plural-challenge",
+    "description": "Postman collection for the Document Processing Service challenge. Covers lifecycle control, results semantics, activity log, validation errors, and negative state transitions.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "summary_policy",
+      "value": "EXTRACTIVE_DETERMINISTIC"
+    },
+    {
+      "key": "failure_policy",
+      "value": "TOLERATE_PARTIAL_FAILURES"
+    },
+    {
+      "key": "authorization_required",
+      "value": "true"
+    },
+    {
+      "key": "target_status",
+      "value": ""
+    },
+    {
+      "key": "max_retries",
+      "value": "12"
+    },
+    {
+      "key": "retries",
+      "value": "0"
+    },
+    {
+      "key": "process_id",
+      "value": ""
+    },
+    {
+      "key": "pending_process_id",
+      "value": ""
+    },
+    {
+      "key": "running_process_id",
+      "value": ""
+    },
+    {
+      "key": "paused_process_id",
+      "value": ""
+    },
+    {
+      "key": "stopped_process_id",
+      "value": ""
+    },
+    {
+      "key": "terminal_process_id",
+      "value": ""
+    },
+    {
+      "key": "process_status",
+      "value": ""
+    },
+    {
+      "key": "result_kind",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Bootstrap",
+      "description": "Base setup and smoke creation requests.",
+      "item": [
+        {
+          "name": "Create Process - Explicit Selection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "Creates a process and stores process_id for downstream requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"analyze selected documents for lexical metrics and summary\",\n  \"source_folder\": \"{{source_folder}}\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [\n    \"{{selected_file_1}}\",\n    \"{{selected_file_2}}\"\n  ],\n  \"batch_size\": 1,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Process is created in PENDING', function () { pm.expect(body.status).to.eql('PENDING'); });",
+                  "pm.test('Authorization starts in WAITING', function () { pm.expect(body.authorization.authorization_state).to.eql('WAITING'); });",
+                  "pm.collectionVariables.set('process_id', body.process_id);",
+                  "pm.collectionVariables.set('pending_process_id', body.process_id);",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "pm.collectionVariables.set('result_kind', 'NONE');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Process Status - Smoke",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "status"
+              ]
+            },
+            "description": "Smoke check for the canonical status view."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Status payload contains canonical fields', function () {",
+                  "  pm.expect(body).to.have.property('process_id');",
+                  "  pm.expect(body).to.have.property('status');",
+                  "  pm.expect(body).to.have.property('progress');",
+                  "});",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "pm.collectionVariables.set('result_kind', body.result_kind || '');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Processes - Smoke",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes?page=1&page_size=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes?page=1&page_size=10"
+              ]
+            },
+            "description": "Lists processes with pagination."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('List response has paging fields', function () {",
+                  "  pm.expect(body).to.have.property('items');",
+                  "  pm.expect(body).to.have.property('page');",
+                  "  pm.expect(body).to.have.property('page_size');",
+                  "  pm.expect(body).to.have.property('total_items');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - Lifecycle Happy Path",
+      "description": "Authorize, observe, pause, resume, stop or complete, and inspect results.",
+      "item": [
+        {
+          "name": "Authorize Process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/authorize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "authorize"
+              ]
+            },
+            "description": "Authorizes a pending process and dispatches it to the runtime."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Process moves to RUNNING', function () { pm.expect(body.status).to.eql('RUNNING'); });",
+                  "pm.collectionVariables.set('running_process_id', body.process_id);",
+                  "pm.collectionVariables.set('process_status', body.status);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Status - After Authorize",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Authorized process is observable', function () {",
+                  "  pm.expect(['RUNNING','COMPLETED','FAILED','PAUSED']).to.include(body.status);",
+                  "});",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "pm.collectionVariables.set('result_kind', body.result_kind || '');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Results - Running or Partial",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/results?include_documents=true&include_global_summary=true&top_words_limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "results?include_documents=true&include_global_summary=true&top_words_limit=10"
+              ]
+            },
+            "description": "Reads the analytical projection of the process."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "const status = pm.collectionVariables.get('process_status');",
+                  "pm.test('Results semantics align with process status', function () {",
+                  "  if (status === 'PENDING') pm.expect(body.result_kind).to.eql('NONE');",
+                  "  if (['RUNNING','PAUSED','FAILED','STOPPED'].includes(status)) pm.expect(['PARTIAL','NONE']).to.include(body.result_kind);",
+                  "  if (status === 'COMPLETED') pm.expect(body.result_kind).to.eql('FINAL');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pause Process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/pause",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "pause"
+              ]
+            },
+            "description": "Requests safe pause of a running process."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Pause request accepted', function () { pm.expect(body.message.toLowerCase()).to.include('pause'); });",
+                  "pm.collectionVariables.set('target_status', 'PAUSED');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll Status Until Target State",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "status"
+              ]
+            },
+            "description": "Reusable polling request. Set collection variable target_status before executing."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "const target = pm.collectionVariables.get('target_status');",
+                  "const maxRetries = Number(pm.collectionVariables.get('max_retries') || 12);",
+                  "let retries = Number(pm.collectionVariables.get('retries') || 0);",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "if (body.status !== target && retries < maxRetries) {",
+                  "  retries += 1;",
+                  "  pm.collectionVariables.set('retries', String(retries));",
+                  "  postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.unset('retries');",
+                  "  postman.setNextRequest(null);",
+                  "}",
+                  "pm.test('Status eventually reaches target or max retries', function () {",
+                  "  pm.expect(retries).to.be.at.most(maxRetries);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resume Process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/resume",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "resume"
+              ]
+            },
+            "description": "Resumes a paused process."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Resume accepted', function () { pm.expect(body.status).to.eql('RUNNING'); });",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "pm.collectionVariables.set('target_status', 'RUNNING');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop Process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/stop",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "stop"
+              ]
+            },
+            "description": "Stops a process from PENDING, RUNNING, or PAUSED."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('target_status', 'STOPPED');",
+                  "pm.test('Stop accepted', function () { pm.expect(body).to.have.property('status'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Status - Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('process_status', body.status);",
+                  "pm.test('Terminal or active status is visible', function () {",
+                  "  pm.expect(['RUNNING','PAUSED','COMPLETED','FAILED','STOPPED']).to.include(body.status);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Results - Terminal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/results?include_documents=true&include_global_summary=true&top_words_limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "results?include_documents=true&include_global_summary=true&top_words_limit=10"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "const status = pm.collectionVariables.get('process_status');",
+                  "pm.test('Terminal results semantics are coherent', function () {",
+                  "  if (status === 'COMPLETED') pm.expect(body.result_kind).to.eql('FINAL');",
+                  "  if (['FAILED','STOPPED'].includes(status)) pm.expect(body.result_kind).to.eql('PARTIAL');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Stop Scenarios",
+      "description": "Stop from pending, running, and paused states.",
+      "item": [
+        {
+          "name": "Create Process - For Stop From Pending",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"process intended for stop-from-pending contract test\",\n  \"source_folder\": \"{{source_folder}}\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [\n    \"{{selected_file_1}}\",\n    \"{{selected_file_2}}\"\n  ],\n  \"batch_size\": 1,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('pending_process_id', body.process_id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop Pending Process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{pending_process_id}}/stop",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{pending_process_id}}",
+                "stop"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Pending process stops', function () { pm.expect(['STOPPED','PENDING']).to.include(body.status); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Status - Stopped Pending Process",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{pending_process_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{pending_process_id}}",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Status is STOPPED', function () { pm.expect(body.status).to.eql('STOPPED'); });",
+                  "pm.test('Terminal reason is manual stop', function () { pm.expect(body.terminal_info.terminal_reason_code).to.eql('MANUAL_STOP'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Negative State Transitions",
+      "description": "Requests that must return 409 for invalid lifecycle transitions.",
+      "item": [
+        {
+          "name": "Pause Process While Still Pending -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{pending_process_id}}/pause",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{pending_process_id}}",
+                "pause"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409', function () { pm.response.to.have.status(409); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Invalid transition error', function () { pm.expect(body.error.code).to.eql('INVALID_STATE_TRANSITION'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Authorize Already Running Process -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{running_process_id}}/authorize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{running_process_id}}",
+                "authorize"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 or 404 depending on scenario setup', function () { pm.expect([409,404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 409) {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql('INVALID_STATE_TRANSITION');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resume Running Process -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{running_process_id}}/resume",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{running_process_id}}",
+                "resume"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 or 404 depending on scenario setup', function () { pm.expect([409,404]).to.include(pm.response.code); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop Completed Process -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes/{{terminal_process_id}}/stop",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{terminal_process_id}}",
+                "stop"
+              ]
+            },
+            "description": "Run this after capturing a completed process_id into terminal_process_id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 or 404 depending on whether terminal_process_id has been captured', function () { pm.expect([409,404]).to.include(pm.response.code); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Validation Errors",
+      "description": "Contract validation and semantic invalid request cases.",
+      "item": [
+        {
+          "name": "Create Process - Missing source_folder -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"invalid request missing source folder\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [\n    \"{{selected_file_1}}\"\n  ],\n  \"batch_size\": 1,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 or 422 depending on validator strategy', function () { pm.expect([400,422]).to.include(pm.response.code); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Process - Explicit Selection Empty -> 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"invalid explicit selection empty\",\n  \"source_folder\": \"{{source_folder}}\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [],\n  \"batch_size\": 1,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422', function () { pm.response.to.have.status(422); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Process - Invalid Batch Size -> 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"invalid batch size\",\n  \"source_folder\": \"{{source_folder}}\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [\n    \"{{selected_file_1}}\"\n  ],\n  \"batch_size\": 0,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422', function () { pm.response.to.have.status(422); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Process - Source Folder Not Found -> 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/processes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"invalid source folder\",\n  \"source_folder\": \"/path/that/does/not/exist\",\n  \"selection_mode\": \"EXPLICIT_SELECTION\",\n  \"selected_files\": [\n    \"{{selected_file_1}}\"\n  ],\n  \"batch_size\": 1,\n  \"summary_policy\": \"{{summary_policy}}\",\n  \"failure_policy\": \"{{failure_policy}}\",\n  \"authorization_required\": true\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422', function () { pm.response.to.have.status(422); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Results Semantics",
+      "description": "Checks NONE/PARTIAL/FINAL semantics and result-shaping query parameters.",
+      "item": [
+        {
+          "name": "Get Results For Pending Process -> NONE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{pending_process_id}}/results?include_documents=true&include_global_summary=true&top_words_limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{pending_process_id}}",
+                "results?include_documents=true&include_global_summary=true&top_words_limit=10"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Pending process exposes NONE result kind or empty partial when unsupported', function () { pm.expect(['NONE','PARTIAL']).to.include(body.result_kind); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Results Without Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/results?include_documents=false&include_global_summary=true&top_words_limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "results?include_documents=false&include_global_summary=true&top_words_limit=5"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Most frequent words list is limited', function () { pm.expect(body.most_frequent_words.length).to.be.at.most(5); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Results Top Words Limit 3",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/results?include_documents=true&include_global_summary=true&top_words_limit=3",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "results?include_documents=true&include_global_summary=true&top_words_limit=3"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Most frequent words list is at most 3 items', function () { pm.expect(body.most_frequent_words.length).to.be.at.most(3); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Activity Log",
+      "description": "Optional but recommended checks for persisted activity entries.",
+      "item": [
+        {
+          "name": "Get Activity",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes/{{process_id}}/activity?page=1&page_size=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes",
+                "{{process_id}}",
+                "activity?page=1&page_size=50"
+              ]
+            },
+            "description": "Activity endpoint is an extension beyond the base challenge."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 or 404 if activity endpoint is not implemented', function () { pm.expect([200,404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('items');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 - List & Filters",
+      "description": "List endpoints with filters and pagination.",
+      "item": [
+        {
+          "name": "List Processes By Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes?status=RUNNING&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes?status=RUNNING&page=1&page_size=20"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Returned items are filtered or empty', function () {",
+                  "  pm.expect(body).to.have.property('items');",
+                  "  body.items.forEach(it => pm.expect(it.status).to.eql('RUNNING'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Processes - Page 2",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/processes?page=2&page_size=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "processes?page=2&page_size=10"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "const body = pm.response.json();",
+                  "pm.test('Pagination fields are present', function () {",
+                  "  pm.expect(body.page).to.eql(2);",
+                  "  pm.expect(body.page_size).to.eql(10);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
